@@ -1,0 +1,8 @@
+# Only PrismUI.lua is hosted. Caller scripts stay local.
+example.lua
+CLAUDE.md
+
+# Claude Design canvas working files — local tooling
+*.dc.html
+support.js
+.thumbnail
