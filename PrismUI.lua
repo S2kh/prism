@@ -3,7 +3,7 @@
 	Roblox port of "Prism Script Menu v2.dc.html" — same palette, sizes, easing and behavior.
 
 	USAGE
-		local Prism  = loadstring(game:HttpGet("https://cdn.jsdelivr.net/gh/S2kh/prism@v1.0.1/PrismUI.lua"))()
+		local Prism  = loadstring(game:HttpGet("https://cdn.jsdelivr.net/gh/S2kh/prism@v1.0.2/PrismUI.lua"))()
 		-- local file instead:  loadstring(readfile("PrismUI.lua"))()
 		local Window = Prism:CreateWindow({ Name = "PRISM" })
 		local Tab    = Window:AddTab("Config & Themes")
@@ -78,7 +78,7 @@ local KEYPOOL = { "Q","W","E","R","T","F","G","V","B","X","Z","C","H","J","K","N
 
 local Prism = {}
 Prism.__index = Prism
-Prism.Version = "1.0.1"  -- bump every release; the tag in your loadstring URL should match this
+Prism.Version = "1.0.2"  -- bump every release; the tag in your loadstring URL should match this
 Prism.Theme   = Theme
 Prism.Mobile  = MOBILE
 Prism.Flags   = {}     -- every control with a Flag writes here; this is what you save/load
@@ -88,15 +88,16 @@ Prism.Flags   = {}     -- every control with a Flag writes here; this is what yo
 -- Signals on UserInputService outlive the ScreenGui they were made for. When the
 -- script is re-run from a loadstring the old chunk is still connected and starts
 -- throwing on destroyed instances, so every global connection is parked here and
--- Window:Destroy() tears the whole set down.
+-- Window:Destroy() tears the whole set down. Named conn, not bind: AddToggle
+-- has a local `bind` table for its keybind that would shadow it.
 --==============================================================
 local CONNS = {}
-local function bind(signal, fn)
+local function conn(signal, fn)
 	local c = signal:Connect(fn)
 	CONNS[#CONNS + 1] = c
 	return c
 end
-local function unbindAll()
+local function dropConns()
 	for _, c in ipairs(CONNS) do pcall(function() c:Disconnect() end) end
 	table.clear(CONNS)
 end
@@ -539,7 +540,7 @@ function Section:AddToggle(o)
 
 		well.MouseButton2Click:Connect(openMenu)
 
-		bind(UserInputService.InputBegan, function(i, gpe)
+		conn(UserInputService.InputBegan, function(i, gpe)
 			if i.UserInputType ~= Enum.UserInputType.Keyboard then return end
 			if listening then
 				bind.Key = i.KeyCode
@@ -554,7 +555,7 @@ function Section:AddToggle(o)
 			if bind.Mode == "Toggle" then set(not state, true)
 			elseif bind.Mode == "Hold" then set(true, true) end
 		end)
-		bind(UserInputService.InputEnded, function(i)
+		conn(UserInputService.InputEnded, function(i)
 			if bind.Mode == "Hold" and bind.Key and i.KeyCode == bind.Key then set(false, true) end
 		end)
 	end
@@ -636,7 +637,7 @@ function Section:AddSlider(o)
 			dragging = true fromX(i.Position.X)
 		end
 	end)
-	bind(UserInputService.InputEnded, function(i)
+	conn(UserInputService.InputEnded, function(i)
 		if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then dragging = false end
 	end)
 	UserInputService.InputChanged:Connect(function(i)
@@ -681,7 +682,7 @@ function Section:AddKeybind(o)
 		end)
 	end)
 
-	bind(UserInputService.InputBegan, function(i, gpe)
+	conn(UserInputService.InputBegan, function(i, gpe)
 		if not listening or i.UserInputType ~= Enum.UserInputType.Keyboard then return end
 		listening = false
 		if scrambleTask then task.cancel(scrambleTask) scrambleTask = nil end
@@ -1358,7 +1359,7 @@ function Prism:CreateWindow(o)
 	end
 
 	function self:Destroy()
-		unbindAll()
+		dropConns()
 		if self.Blur then pcall(function() self.Blur:Destroy() end) end
 		pcall(function() gui:Destroy() end)
 		local g = genv()
@@ -1373,7 +1374,7 @@ function Prism:CreateWindow(o)
 	-- keys (desktop only — mobile uses the header button + icon)
 	----------------------------------------------------------------
 	if not MOBILE then
-		bind(UserInputService.InputBegan, function(i, gpe)
+		conn(UserInputService.InputBegan, function(i, gpe)
 			if gpe or i.UserInputType ~= Enum.UserInputType.Keyboard then return end
 			if i.KeyCode == self.PanicKey then
 				Prism:Notify("PANIC", "ScreenGui:Destroy()")
