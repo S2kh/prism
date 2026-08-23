@@ -2,7 +2,7 @@
 example.lua
 CLAUDE.md
 
-# Claude Design canvas working files — local tooling
-*.dc.html
+# Design / canvas working files — local tooling
+*.html
 support.js
 .thumbnail

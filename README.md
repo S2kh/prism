@@ -3,7 +3,7 @@
 A script menu library for Roblox. The repo holds one file — **`PrismUI.lua`** — served over a CDN. Your own scripts stay on your machine and pull it in at runtime.
 
 ```lua
-local Prism = loadstring(game:HttpGet("https://cdn.jsdelivr.net/gh/S2kh/prism@v1.0.0/PrismUI.lua"))()
+local Prism = loadstring(game:HttpGet("https://cdn.jsdelivr.net/gh/S2kh/prism@v1.0.1/PrismUI.lua"))()
 
 local Window = Prism:CreateWindow({ Name = "PRISM" })
 local Tab    = Window:AddTab("Config & Themes")
@@ -16,7 +16,7 @@ Sec:AddToggle({ Text = "Glow effects", Desc = "bloom behind the panel",
 
 That is the whole integration. The library returns `Prism`, reads nothing from the caller, and touches no files.
 
-**Pin a tag, never a branch.** `@v1.0.0` is immutable and cached forever. `@main` is cached about 12 hours at the edge, so after a fix is pushed some users get the old file and some get the new one for half a day — every bug report stops matching the code. `https://raw.githubusercontent.com/S2kh/prism/main/PrismUI.lua` is the 5-minute-cache URL to test against; hand out tags.
+**Pin a tag, never a branch.** `@v1.0.1` is immutable and cached forever. `@main` is cached about 12 hours at the edge, so after a fix is pushed some users get the old file and some get the new one for half a day — every bug report stops matching the code. `https://raw.githubusercontent.com/S2kh/prism/main/PrismUI.lua` is the 5-minute-cache URL to test against; hand out tags.
 
 Loading from disk instead: `loadstring(readfile("PrismUI.lua"))()`. On single-file executors, paste `PrismUI.lua` above your script and drop the `loadstring` line.
 
@@ -25,7 +25,7 @@ Loading from disk instead: `loadstring(readfile("PrismUI.lua"))()`. On single-fi
 The one-liner has no recourse if the CDN is unreachable. This tries jsDelivr, falls back to GitHub raw, and caches the library to `prism/lib_<version>.lua` so relaunches are instant:
 
 ```lua
-local PRISM_VERSION = "v1.0.0"   -- a git TAG, not a branch
+local PRISM_VERSION = "v1.0.1"   -- a git TAG, not a branch
 
 local function loadPrism()
 	local sources = {
@@ -71,11 +71,11 @@ local Prism = loadPrism()
 ## Releasing
 
 1. Bump `Prism.Version` in `PrismUI.lua`.
-2. `git commit -am "v1.0.1 — what changed" && git push`
-3. `git tag v1.0.1 && git push origin v1.0.1`
+2. `git commit -am "v1.0.2 — what changed" && git push`
+3. `git tag v1.0.2 && git push origin v1.0.2`
 4. Bump `PRISM_VERSION` in your caller.
 
-Scripts pinned to `v1.0.0` keep working untouched.
+Scripts pinned to an older tag keep working untouched.
 
 Not worth hosting on: Pastebin (guest pastes expire, heavily rate-limited, commonly blocked), Gist raw links (the URL carries a revision SHA that changes on every edit), Discord CDN links (they expire with signed params now).
 

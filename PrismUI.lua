@@ -3,7 +3,7 @@
 	Roblox port of "Prism Script Menu v2.dc.html" — same palette, sizes, easing and behavior.
 
 	USAGE
-		local Prism  = loadstring(game:HttpGet("https://cdn.jsdelivr.net/gh/S2kh/prism@v1.0.0/PrismUI.lua"))()
+		local Prism  = loadstring(game:HttpGet("https://cdn.jsdelivr.net/gh/S2kh/prism@v1.0.1/PrismUI.lua"))()
 		-- local file instead:  loadstring(readfile("PrismUI.lua"))()
 		local Window = Prism:CreateWindow({ Name = "PRISM" })
 		local Tab    = Window:AddTab("Config & Themes")
@@ -78,7 +78,7 @@ local KEYPOOL = { "Q","W","E","R","T","F","G","V","B","X","Z","C","H","J","K","N
 
 local Prism = {}
 Prism.__index = Prism
-Prism.Version = "1.0.0"  -- bump every release; the tag in your loadstring URL should match this
+Prism.Version = "1.0.1"  -- bump every release; the tag in your loadstring URL should match this
 Prism.Theme   = Theme
 Prism.Mobile  = MOBILE
 Prism.Flags   = {}     -- every control with a Flag writes here; this is what you save/load
@@ -313,15 +313,17 @@ function Section:_row(text, desc, height)
 	})
 	pad(r, 0, 22)
 
+	-- Instances reject custom fields, so the header strip is returned to the
+	-- caller rather than parked on the row. nil when the row has no text.
+	local head
 	if text then
 		local col = new("Frame", { BackgroundTransparency = 1, Size = UDim2.new(1, -190, 1, 0), Parent = r })
 		list(col, 3, nil, Enum.VerticalAlignment.Center)
-		local head = new("Frame", { BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 18), Parent = col })
+		head = new("Frame", { BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 18), Parent = col })
 		list(head, 8, Enum.FillDirection.Horizontal, Enum.VerticalAlignment.Center)
 		local t = label(head, text, 14, Theme.Bone)
 		t.Size = UDim2.fromOffset(t.TextBounds.X + 4, 18)
 		t.AutomaticSize = Enum.AutomaticSize.X
-		r._head = head
 		if desc then label(col, string.upper(desc), 9, Theme.Bone3, Theme.Mono, true) end
 	end
 
@@ -330,7 +332,7 @@ function Section:_row(text, desc, height)
 		r.MouseEnter:Connect(function() tw(r, FAST, { BackgroundTransparency = 0.88 }) end)
 		r.MouseLeave:Connect(function() tw(r, FAST, { BackgroundTransparency = 1 }) end)
 	end
-	return r
+	return r, head
 end
 
 --------------------------------------------------------------------
@@ -340,7 +342,7 @@ function Section:AddToggle(o)
 	local state = o.Default or false
 	local bind  = { Key = o.BindKey, Mode = o.BindMode or "Toggle" }
 	local win   = self.Window
-	local r     = self:_row(o.Text, o.Desc)
+	local r, head = self:_row(o.Text, o.Desc)
 
 	local W, H   = MOBILE and 64 or 46, MOBILE and 36 or 24
 	local KW, KH = MOBILE and 27 or 19, MOBILE and 30 or 18
@@ -349,7 +351,7 @@ function Section:AddToggle(o)
 		BackgroundColor3 = Theme.Accent, BackgroundTransparency = 0.87,
 		Size = UDim2.fromOffset(0, 15), AutomaticSize = Enum.AutomaticSize.X,
 		Text = "", TextSize = 9, Font = Theme.Mono, TextColor3 = Theme.Accent,
-		Visible = false, LayoutOrder = 2, Parent = r._head,
+		Visible = false, LayoutOrder = 2, Parent = head or r,
 	})
 	stroke(badge, Theme.Accent, 0.5)
 	pad(badge, 0, 5)
@@ -492,15 +494,15 @@ function Section:AddToggle(o)
 				Toggle = "KEY FLIPS IT ON AND OFF",
 				Hold   = "ON ONLY WHILE THE KEY IS HELD",
 			}
-			local modeBtns = {}
+			local modeBtns = {}   -- mode -> { btn = TextButton, stroke = UIStroke }
 			local function paintModes()
 				hint.Text = HINTS[bind.Mode]
-				for m, b in pairs(modeBtns) do
+				for m, rec in pairs(modeBtns) do
 					local on = bind.Mode == m
-					tw(b, FAST, { BackgroundTransparency = on and 0.82 or 1 })
-					b.TextColor3 = on and Theme.Bone or Theme.Bone4
-					b._stroke.Color = on and Theme.Accent or Theme.Edge2
-					b._stroke.Transparency = on and 0.45 or 0
+					tw(rec.btn, FAST, { BackgroundTransparency = on and 0.82 or 1 })
+					rec.btn.TextColor3 = on and Theme.Bone or Theme.Bone4
+					rec.stroke.Color = on and Theme.Accent or Theme.Edge2
+					rec.stroke.Transparency = on and 0.45 or 0
 				end
 			end
 			for _, m in ipairs({ "Always", "Toggle", "Hold" }) do
@@ -509,8 +511,7 @@ function Section:AddToggle(o)
 					AutoButtonColor = false, Text = string.upper(m), TextSize = 9, Font = Theme.Mono,
 					TextColor3 = Theme.Bone4, Parent = modeRow,
 				})
-				b._stroke = stroke(b, Theme.Edge2)
-				modeBtns[m] = b
+				modeBtns[m] = { btn = b, stroke = stroke(b, Theme.Edge2) }
 				b.MouseButton1Click:Connect(function()
 					bind.Mode = m
 					paintModes(); refreshBadge()
@@ -706,11 +707,11 @@ local function optionRow(parent, text, selected, order)
 		TextSize = 10, Font = Theme.Mono,
 		TextColor3 = selected and Theme.Bone or Theme.Bone2, LayoutOrder = order, Parent = parent,
 	})
-	b._edge = new("Frame", {
+	local edge = new("Frame", {
 		Size = UDim2.new(0, 2, 1, 0), BackgroundColor3 = Theme.Accent,
 		BackgroundTransparency = selected and 0 or 1, BorderSizePixel = 0, Parent = b,
 	})
-	return b
+	return b, edge
 end
 
 function Section:_ddButton(r, textFn)
@@ -800,7 +801,7 @@ function Section:AddMultiDropdown(o)
 		pad(menu, 3)
 		list(menu, 0)
 		for i, name in ipairs(o.Options) do
-			local ob = optionRow(menu, "   " .. name, has(name), i)
+			local ob, edge = optionRow(menu, "   " .. name, has(name), i)
 			local box = new("Frame", {
 				AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 10, 0.5, 0), Size = UDim2.fromOffset(10, 10),
 				BackgroundColor3 = has(name) and Theme.Accent or Color3.fromHex("0A0A0B"), BorderSizePixel = 0, ZIndex = 2, Parent = ob,
@@ -816,7 +817,7 @@ function Section:AddMultiDropdown(o)
 				box.BackgroundColor3 = on and Theme.Accent or Color3.fromHex("0A0A0B")
 				box:FindFirstChildOfClass("UIStroke").Color = on and Theme.Accent or Color3.fromHex("33322B")
 				ob.BackgroundTransparency = on and 0.86 or 1
-				ob._edge.BackgroundTransparency = on and 0 or 1
+				edge.BackgroundTransparency = on and 0 or 1
 				ob.TextColor3 = on and Theme.Bone or Theme.Bone2
 				txt.Text = lab()
 				if o.Flag then Prism.Flags[o.Flag] = selected end
@@ -856,18 +857,16 @@ function Section:AddColorPicker(o)
 			Size = UDim2.fromOffset(size, size), BackgroundColor3 = c, AutoButtonColor = false,
 			Text = "", LayoutOrder = i, Parent = tray,
 		})
-		b._stroke = stroke(b, Color3.new(0, 0, 0), 0.4)
-		b._glow = glow(b, c, 1, 10)
-		btns[hex] = b
+		btns[hex] = { btn = b, stroke = stroke(b, Color3.new(0, 0, 0), 0.4), glow = glow(b, c, 1, 10) }
 		b.MouseButton1Click:Connect(function()
 			value = c
-			for h, other in pairs(btns) do
+			for h, rec in pairs(btns) do
 				local on = h == hex
-				other._stroke.Color = on and Theme.Bone or Color3.new(0, 0, 0)
-				other._stroke.Transparency = on and 0 or 0.4
-				other._stroke.Thickness = on and 2 or 1
-				other._glow.ImageTransparency = on and 0.35 or 1
-				tw(other, SNAP, { Size = UDim2.fromOffset(size, size) })
+				rec.stroke.Color = on and Theme.Bone or Color3.new(0, 0, 0)
+				rec.stroke.Transparency = on and 0 or 0.4
+				rec.stroke.Thickness = on and 2 or 1
+				rec.glow.ImageTransparency = on and 0.35 or 1
+				tw(rec.btn, SNAP, { Size = UDim2.fromOffset(size, size) })
 			end
 			if o.Flag then Prism.Flags[o.Flag] = hex end
 			if o.Callback then task.spawn(o.Callback, c) end
@@ -1095,9 +1094,9 @@ function Tab:AddSection(title)
 	-- rows added to this section push the tab's order forward too
 	local origRow = Section._row
 	sec._row = function(s, ...)
-		local r = origRow(s, ...)
+		local r, head = origRow(s, ...)
 		self._order = s._order
-		return r
+		return r, head
 	end
 	return sec
 end
