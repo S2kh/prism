@@ -3,7 +3,7 @@
 	Roblox port of "Prism Script Menu v2.dc.html" — same palette, sizes, easing and behavior.
 
 	USAGE
-		local Prism  = loadstring(game:HttpGet("https://cdn.jsdelivr.net/gh/S2kh/prism@v1.0.2/PrismUI.lua"))()
+		local Prism  = loadstring(game:HttpGet("https://cdn.jsdelivr.net/gh/S2kh/prism@v1.1.0/PrismUI.lua"))()
 		-- local file instead:  loadstring(readfile("PrismUI.lua"))()
 		local Window = Prism:CreateWindow({ Name = "PRISM" })
 		local Tab    = Window:AddTab("Config & Themes")
@@ -57,13 +57,26 @@ local Theme = {
 	Danger   = Color3.fromHex("D9584A"),
 	Radius   = 6,
 
-	-- Saira / Azeret Mono have no Roblox equivalent; closest built-ins.
-	Display  = Enum.Font.GothamMedium,
-	Bold     = Enum.Font.GothamBold,
-	Mono     = Enum.Font.Code,
+	-- filled in below: Enum.Font carries no weight, FontFace does
+	Display  = nil, Bold = nil, Mono = nil, MonoSemi = nil,
 
 	GlowAsset = "rbxassetid://6014261993",
 }
+
+-- Saira -> Titillium Web, Azeret Mono -> Roboto Mono: the nearest built-ins.
+-- The mockup leans on weights (500/600/700) that Enum.Font can't express, so
+-- these are FontFace values. Roblox has no letter-spacing at all, so the
+-- mockup's .1em-.24em tracking on mono labels cannot be reproduced.
+local function face(enumFont, weight)
+	local base = Font.fromEnum(enumFont)
+	local ok, f = pcall(Font.new, base.Family, weight, Enum.FontStyle.Normal)
+	return ok and f or base
+end
+Theme.Display  = face(Enum.Font.TitilliumWeb, Enum.FontWeight.Medium)    -- rowLabel 500
+Theme.Bold     = face(Enum.Font.TitilliumWeb, Enum.FontWeight.Bold)      -- wordmark 700
+Theme.Mono     = face(Enum.Font.RobotoMono,   Enum.FontWeight.Medium)    -- mono 500
+Theme.MonoSemi = face(Enum.Font.RobotoMono,   Enum.FontWeight.SemiBold)  -- ticker title 600
+
 
 -- easing curves lifted from the CSS
 local SNAP    = TweenInfo.new(0.15, Enum.EasingStyle.Back,  Enum.EasingDirection.Out)  -- rocker knob
@@ -78,7 +91,7 @@ local KEYPOOL = { "Q","W","E","R","T","F","G","V","B","X","Z","C","H","J","K","N
 
 local Prism = {}
 Prism.__index = Prism
-Prism.Version = "1.0.2"  -- bump every release; the tag in your loadstring URL should match this
+Prism.Version = "1.1.0"  -- bump every release; the tag in your loadstring URL should match this
 Prism.Theme   = Theme
 Prism.Mobile  = MOBILE
 Prism.Flags   = {}     -- every control with a Flag writes here; this is what you save/load
@@ -148,6 +161,13 @@ end
 
 local function tw(inst, info, goal) local t = TweenService:Create(inst, info, goal) t:Play() return t end
 
+-- vertical gradient; the mockup's linear-gradient(180deg, a, b)
+local function gradient(parent, top, bottom, rotation)
+	return new("UIGradient", {
+		Color = ColorSequence.new(top, bottom), Rotation = rotation or 90, Parent = parent,
+	})
+end
+
 local function glow(parent, color, transparency, spread)
 	spread = spread or 30
 	return new("ImageLabel", {
@@ -159,14 +179,18 @@ local function glow(parent, color, transparency, spread)
 	})
 end
 
+-- the wordmark is the one place tracking is reproducible: at 22px a real
+-- space lands close to the mockup's .3em, and it isn't monospaced
+local function spaced(t) return (tostring(t):gsub("(.)", "%1 "):gsub(" $", "")) end
+
 local function label(parent, text, size, color, font, mono)
 	local l = new("TextLabel", {
 		BackgroundTransparency = 1, Text = text, TextSize = size,
-		TextColor3 = color or Theme.Bone, Font = font or Theme.Display,
+		TextColor3 = color or Theme.Bone, FontFace = font or Theme.Display,
 		TextXAlignment = Enum.TextXAlignment.Left, RichText = true,
 		Size = UDim2.new(1, 0, 0, math.floor(size * 1.35)), Parent = parent,
 	})
-	if mono then l.Font = Theme.Mono end
+	if mono then l.FontFace = Theme.Mono end
 	return l
 end
 
@@ -230,7 +254,7 @@ local function odometer(parent, places, unit)
 			new("TextLabel", {
 				BackgroundTransparency = 1, Position = UDim2.fromOffset(0, d * DIGIT_H),
 				Size = UDim2.fromOffset(9, DIGIT_H), Text = tostring(d),
-				TextSize = 14, Font = Theme.Mono, TextColor3 = Theme.Bone, Parent = col,
+				TextSize = 14, FontFace = Theme.Mono, TextColor3 = Theme.Bone, Parent = col,
 			})
 		end
 		strips[i] = col
@@ -272,7 +296,7 @@ function Prism:Notify(title, body, duration)
 
 	local col = new("Frame", { BackgroundTransparency = 1, Position = UDim2.fromOffset(14, 10), Size = UDim2.new(1, -20, 1, -20), Parent = card })
 	list(col, 4)
-	label(col, string.upper(title), 10, Theme.Bone, Theme.Mono, true)
+	label(col, string.upper(title), 10, Theme.Bone, Theme.MonoSemi)
 	label(col, body, 10, Theme.Bone3, Theme.Mono, true)
 
 	local drain = new("Frame", {
@@ -298,7 +322,7 @@ end
 local Section = {}
 Section.__index = Section
 
-local ROW_H   = MOBILE and 62 or 52
+local ROW_H   = MOBILE and 72 or 58
 local CTRL_H  = MOBILE and 44 or 32
 
 -- one full-width row: label + description on the left, control on the right
@@ -322,7 +346,7 @@ function Section:_row(text, desc, height)
 		list(col, 3, nil, Enum.VerticalAlignment.Center)
 		head = new("Frame", { BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 18), Parent = col })
 		list(head, 8, Enum.FillDirection.Horizontal, Enum.VerticalAlignment.Center)
-		local t = label(head, text, 14, Theme.Bone)
+		local t = label(head, text, 13.5, Theme.Bone)
 		t.Size = UDim2.fromOffset(t.TextBounds.X + 4, 18)
 		t.AutomaticSize = Enum.AutomaticSize.X
 		if desc then label(col, string.upper(desc), 9, Theme.Bone3, Theme.Mono, true) end
@@ -351,7 +375,7 @@ function Section:AddToggle(o)
 	local badge = new("TextLabel", {
 		BackgroundColor3 = Theme.Accent, BackgroundTransparency = 0.87,
 		Size = UDim2.fromOffset(0, 15), AutomaticSize = Enum.AutomaticSize.X,
-		Text = "", TextSize = 9, Font = Theme.Mono, TextColor3 = Theme.Accent,
+		Text = "", TextSize = 9, FontFace = Theme.Mono, TextColor3 = Theme.Accent,
 		Visible = false, LayoutOrder = 2, Parent = head or r,
 	})
 	stroke(badge, Theme.Accent, 0.5)
@@ -376,8 +400,10 @@ function Section:AddToggle(o)
 	})
 	local knob = new("Frame", {
 		Position = UDim2.fromOffset(3, math.floor((H - KH) / 2)), Size = UDim2.fromOffset(KW, KH),
-		BackgroundColor3 = Color3.fromHex("3B3A33"), BorderSizePixel = 0, ZIndex = 3, Parent = well,
+		BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0, ZIndex = 3, Parent = well,
 	})
+	-- the gradient carries the colour so the base stays white and multiplies cleanly
+	local knobGrad = gradient(knob, Color3.fromHex("4A483F"), Color3.fromHex("2E2D28"))
 	grip(knob, true)
 	local knobEdge = new("Frame", { Size = UDim2.new(1, 0, 0, 1), BackgroundColor3 = Color3.fromHex("5C5A50"), BorderSizePixel = 0, ZIndex = 3, Parent = knob })
 
@@ -395,10 +421,10 @@ function Section:AddToggle(o)
 	local function paint()
 		local on = state
 		tw(slot, FAST, { BackgroundColor3 = on and Theme.Accent or Theme.Well, BackgroundTransparency = on and 0.7 or 0 })
-		tw(knob, SNAP, {
-			Position = UDim2.fromOffset(on and (W - KW - 3) or 3, math.floor((H - KH) / 2)),
-			BackgroundColor3 = on and Color3.fromHex("E4DFD3") or Color3.fromHex("3B3A33"),
-		})
+		tw(knob, SNAP, { Position = UDim2.fromOffset(on and (W - KW - 3) or 3, math.floor((H - KH) / 2)) })
+		knobGrad.Color = on
+			and ColorSequence.new(Color3.fromHex("F6F2E8"), Color3.fromHex("C9C4B7"))
+			or  ColorSequence.new(Color3.fromHex("4A483F"), Color3.fromHex("2E2D28"))
 		knobEdge.BackgroundColor3 = on and Color3.fromHex("FFFDF6") or Color3.fromHex("5C5A50")
 		tw(led, FAST, { BackgroundColor3 = on and Theme.Accent or Theme.Edge })
 		ledGlow.ImageTransparency = on and 0.45 or 1
@@ -465,7 +491,7 @@ function Section:AddToggle(o)
 			local keyBtn = new("TextButton", {
 				Size = UDim2.new(1, 0, 0, 30), BackgroundColor3 = Theme.Well, AutoButtonColor = false,
 				Text = bind.Key and string.upper(keyName(bind.Key)) or "CLICK TO BIND",
-				TextSize = 11, Font = Theme.Mono,
+				TextSize = 11, FontFace = Theme.Mono,
 				TextColor3 = bind.Key and Theme.Bone or Theme.Bone4, LayoutOrder = 2, Parent = menu,
 			})
 			local keyStroke = stroke(keyBtn, Theme.Edge2)
@@ -509,7 +535,7 @@ function Section:AddToggle(o)
 			for _, m in ipairs({ "Always", "Toggle", "Hold" }) do
 				local b = new("TextButton", {
 					Size = UDim2.new(0.333, -2, 1, 0), BackgroundColor3 = Theme.Accent, BackgroundTransparency = 1,
-					AutoButtonColor = false, Text = string.upper(m), TextSize = 9, Font = Theme.Mono,
+					AutoButtonColor = false, Text = string.upper(m), TextSize = 9, FontFace = Theme.Mono,
 					TextColor3 = Theme.Bone4, Parent = modeRow,
 				})
 				modeBtns[m] = { btn = b, stroke = stroke(b, Theme.Edge2) }
@@ -524,7 +550,7 @@ function Section:AddToggle(o)
 
 			local clear = new("TextButton", {
 				Size = UDim2.new(1, 0, 0, 24), BackgroundColor3 = Theme.Danger, BackgroundTransparency = 0.9,
-				AutoButtonColor = false, Text = "CLEAR BIND", TextSize = 9, Font = Theme.Mono,
+				AutoButtonColor = false, Text = "CLEAR BIND", TextSize = 9, FontFace = Theme.Mono,
 				TextColor3 = Theme.Danger, LayoutOrder = 5, Parent = menu,
 			})
 			stroke(clear, Theme.Danger, 0.7)
@@ -663,7 +689,7 @@ function Section:AddKeybind(o)
 	local btn = new("TextButton", {
 		AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, 0, 0.5, 0),
 		Size = UDim2.fromOffset(132, 34), BackgroundColor3 = Theme.Well, AutoButtonColor = false,
-		Text = string.upper(keyName(key)), TextSize = 11, Font = Theme.Mono, TextColor3 = Theme.Bone, Parent = r,
+		Text = string.upper(keyName(key)), TextSize = 11, FontFace = Theme.Mono, TextColor3 = Theme.Bone, Parent = r,
 	})
 	local bs = stroke(btn, Theme.Edge2)
 	local bar = new("Frame", {
@@ -705,7 +731,7 @@ local function optionRow(parent, text, selected, order)
 		Size = UDim2.new(1, 0, 0, MOBILE and 44 or 30), BackgroundColor3 = Theme.Accent,
 		BackgroundTransparency = selected and 0.86 or 1, AutoButtonColor = false,
 		Text = "     " .. string.upper(text), TextXAlignment = Enum.TextXAlignment.Left,
-		TextSize = 10, Font = Theme.Mono,
+		TextSize = 10, FontFace = Theme.Mono,
 		TextColor3 = selected and Theme.Bone or Theme.Bone2, LayoutOrder = order, Parent = parent,
 	})
 	local edge = new("Frame", {
@@ -731,7 +757,7 @@ function Section:_ddButton(r, textFn)
 	txt.TextYAlignment = Enum.TextYAlignment.Center
 	local chev = new("TextLabel", {
 		AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -10, 0.5, 0), Size = UDim2.fromOffset(10, 10),
-		BackgroundTransparency = 1, Text = "▾", TextSize = 10, Font = Theme.Mono, TextColor3 = Theme.Bone4, Parent = btn,
+		BackgroundTransparency = 1, Text = "▾", TextSize = 10, FontFace = Theme.Mono, TextColor3 = Theme.Bone4, Parent = btn,
 	})
 	return anchor, btn, txt, chev
 end
@@ -891,7 +917,7 @@ function Section:AddInput(o)
 	local box = new("TextBox", {
 		Size = UDim2.new(1, -52, 0, CTRL_H), BackgroundColor3 = Theme.Well,
 		Text = o.Default or "", PlaceholderText = o.Placeholder or "",
-		PlaceholderColor3 = Color3.fromHex("4E4B45"), TextSize = 11, Font = Theme.Mono,
+		PlaceholderColor3 = Color3.fromHex("4E4B45"), TextSize = 11, FontFace = Theme.Mono,
 		TextColor3 = Theme.Bone, TextXAlignment = Enum.TextXAlignment.Left,
 		ClearTextOnFocus = false, LayoutOrder = 2, Parent = row,
 	})
@@ -936,7 +962,7 @@ function Section:AddButtonRow(items)
 	for i, it in ipairs(items) do
 		local b = new("TextButton", {
 			Size = UDim2.new(1 / n, -6 + 6 / n, 1, 0), AutoButtonColor = false,
-			Text = string.upper(it.Text), TextSize = 10, Font = Theme.Mono, LayoutOrder = i, Parent = row,
+			Text = string.upper(it.Text), TextSize = 10, FontFace = Theme.Mono, LayoutOrder = i, Parent = row,
 		})
 		styleButton(b, it.Style)
 		local base = b.BackgroundTransparency
@@ -951,7 +977,7 @@ function Section:AddButton(o)
 	local r = self:_row(nil, nil, h + 22)
 	local b = new("TextButton", {
 		Position = UDim2.fromOffset(0, 11), Size = UDim2.new(1, 0, 0, h), AutoButtonColor = false,
-		Text = string.upper(o.Text), TextSize = o.Tall and 11 or 10, Font = Theme.Mono, Parent = r,
+		Text = string.upper(o.Text), TextSize = o.Tall and 11 or 10, FontFace = Theme.Mono, Parent = r,
 	})
 	styleButton(b, o.Style)
 	local base = b.BackgroundTransparency
@@ -983,7 +1009,7 @@ function Section:AddConfigList(o)
 	local empty = new("TextLabel", {
 		BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 52),
 		Text = "NO CONFIGS ON DISK — NAME ONE BELOW AND SAVE",
-		TextSize = 9, Font = Theme.Mono, TextColor3 = Theme.Bone3, TextWrapped = true, Parent = box,
+		TextSize = 9, FontFace = Theme.Mono, TextColor3 = Theme.Bone3, TextWrapped = true, Parent = box,
 	})
 
 	local api = {}
@@ -1030,7 +1056,7 @@ function Section:AddConfigList(o)
 			local b = new("TextButton", {
 				Size = UDim2.new(1, 0, 0, rowH), BackgroundColor3 = Theme.Accent, BackgroundTransparency = 1,
 				AutoButtonColor = false, Text = "      " .. name, TextXAlignment = Enum.TextXAlignment.Left,
-				TextSize = 10, Font = Theme.Mono, TextColor3 = Theme.Bone2, LayoutOrder = i, Parent = box,
+				TextSize = 10, FontFace = Theme.Mono, TextColor3 = Theme.Bone2, LayoutOrder = i, Parent = box,
 			})
 			local edge = new("Frame", { Size = UDim2.new(0, 2, 1, 0), BackgroundColor3 = Theme.Accent, BackgroundTransparency = 1, BorderSizePixel = 0, Parent = b })
 			local dot = new("Frame", {
@@ -1040,7 +1066,7 @@ function Section:AddConfigList(o)
 			local tag = new("TextLabel", {
 				AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -10, 0.5, 0), Size = UDim2.fromOffset(50, 12),
 				BackgroundTransparency = 1, Text = "LOADED", TextXAlignment = Enum.TextXAlignment.Right,
-				TextSize = 8, Font = Theme.Mono, TextColor3 = Theme.Accent, Visible = name == loaded, Parent = b,
+				TextSize = 8, FontFace = Theme.Mono, TextColor3 = Theme.Accent, Visible = name == loaded, Parent = b,
 			})
 			rows[name] = { Button = b, Edge = edge, Dot = dot, Tag = tag }
 			b.MouseButton1Click:Connect(function() api.Select(name) end)
@@ -1080,7 +1106,7 @@ function Tab:AddSection(title)
 	local count = new("TextLabel", {
 		AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, 0, 0.5, 0), Size = UDim2.fromOffset(30, 12),
 		BackgroundTransparency = 1, Text = "", TextXAlignment = Enum.TextXAlignment.Right,
-		TextSize = 9, Font = Theme.Mono, TextColor3 = Color3.fromHex("3E3C37"), Parent = strip,
+		TextSize = 9, FontFace = Theme.Mono, TextColor3 = Color3.fromHex("3E3C37"), Parent = strip,
 	})
 
 	local sec = setmetatable({
@@ -1160,6 +1186,18 @@ function Prism:CreateWindow(o)
 	self.Window = win
 	self.Scale = new("UIScale", { Scale = 1, Parent = win })
 
+	-- linear-gradient(180deg, rgba(233,228,216,.035), transparent 30%)
+	local wash = new("Frame", {
+		Size = UDim2.new(1, 0, 0.3, 0), BackgroundColor3 = Theme.Bone,
+		BorderSizePixel = 0, ZIndex = 1, Parent = win,
+	})
+	new("UIGradient", {
+		Rotation = 90, Parent = wash,
+		Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 0.965), NumberSequenceKeypoint.new(1, 1),
+		}),
+	})
+
 	-- brushed vertical grain + top sheen
 	new("ImageLabel", {
 		BackgroundTransparency = 1, Image = "rbxassetid://2454009026", ImageTransparency = 0.97,
@@ -1193,21 +1231,21 @@ function Prism:CreateWindow(o)
 	----------------------------------------------------------------
 	-- header: wordmark + close/minimize
 	----------------------------------------------------------------
-	local header = new("Frame", { Size = UDim2.new(1, 0, 0, MOBILE and 76 or 64), BackgroundTransparency = 1, ZIndex = 4, Parent = win })
+	local header = new("Frame", { Size = UDim2.new(1, 0, 0, MOBILE and 76 or 60), BackgroundTransparency = 1, ZIndex = 4, Parent = win })
 	new("Frame", { AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 0, 1, 0), Size = UDim2.new(1, 0, 0, 1), BackgroundColor3 = Theme.Edge, BorderSizePixel = 0, Parent = header })
 	pad(header, 0, 22)
 
 	local wordmark = new("TextLabel", {
 		AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 0, 0.5, 0), Size = UDim2.new(1, -70, 0, 26),
-		BackgroundTransparency = 1, Text = o.Name or "PRISM", TextXAlignment = Enum.TextXAlignment.Left,
-		TextSize = 22, Font = Theme.Bold, TextColor3 = Theme.Bone, Parent = header,
+		BackgroundTransparency = 1, Text = spaced(o.Name or "PRISM"), TextXAlignment = Enum.TextXAlignment.Left,
+		TextSize = 22, FontFace = Theme.Bold, TextColor3 = Theme.Bone, Parent = header,
 	})
 
 	local hb = MOBILE and 44 or 28
 	local hideBtn = new("TextButton", {
 		AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, 0, 0.5, 0), Size = UDim2.fromOffset(hb, hb),
 		BackgroundColor3 = Theme.Well, AutoButtonColor = false,
-		Text = MOBILE and "–" or "✕", TextSize = MOBILE and 18 or 11, Font = Theme.Mono,
+		Text = MOBILE and "–" or "✕", TextSize = MOBILE and 18 or 11, FontFace = Theme.Mono,
 		TextColor3 = MOBILE and Theme.Bone2 or Theme.Bone4, Parent = header,
 	})
 	stroke(hideBtn, Theme.Edge2)
@@ -1216,7 +1254,7 @@ function Prism:CreateWindow(o)
 	-- tab strip + sliding underline
 	----------------------------------------------------------------
 	local strip = new("Frame", {
-		Position = UDim2.fromOffset(0, MOBILE and 76 or 64), Size = UDim2.new(1, 0, 0, MOBILE and 48 or 40),
+		Position = UDim2.fromOffset(0, MOBILE and 76 or 60), Size = UDim2.new(1, 0, 0, MOBILE and 48 or 40),
 		BackgroundColor3 = Color3.fromHex("0C0C0E"), ZIndex = 4, Parent = win,
 	})
 	new("Frame", { AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 0, 1, 0), Size = UDim2.new(1, 0, 0, 1), BackgroundColor3 = Theme.Edge, BorderSizePixel = 0, Parent = strip })
@@ -1232,7 +1270,7 @@ function Prism:CreateWindow(o)
 	----------------------------------------------------------------
 	-- scrolling body
 	----------------------------------------------------------------
-	local bodyTop = (MOBILE and 76 or 64) + (MOBILE and 48 or 40)
+	local bodyTop = (MOBILE and 76 or 60) + (MOBILE and 48 or 40)
 	local body = new("Frame", {
 		Position = UDim2.fromOffset(0, bodyTop), Size = UDim2.new(1, 0, 1, -bodyTop),
 		BackgroundTransparency = 1, ClipsDescendants = true, ZIndex = 4, Parent = win,
@@ -1251,7 +1289,7 @@ function Prism:CreateWindow(o)
 	local icon = new("TextButton", {
 		AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -28), Size = UDim2.fromOffset(56, 56),
 		BackgroundColor3 = Theme.Chassis, AutoButtonColor = false, Visible = false,
-		Text = "P", TextSize = 24, Font = Theme.Bold, TextColor3 = Theme.Bone, Parent = gui,
+		Text = "P", TextSize = 24, FontFace = Theme.Bold, TextColor3 = Theme.Bone, Parent = gui,
 	})
 	stroke(icon, Theme.Accent, 0.55)
 	glow(icon, Theme.Accent, 0.55, 22)
@@ -1287,7 +1325,7 @@ function Prism:CreateWindow(o)
 		local btn = new("TextButton", {
 			Size = UDim2.fromOffset(0, MOBILE and 48 or 40), AutomaticSize = Enum.AutomaticSize.X,
 			BackgroundTransparency = 1, AutoButtonColor = false, Text = string.upper(name),
-			TextSize = 10, Font = Theme.Mono, TextColor3 = index == 1 and Theme.Bone or Theme.Bone4,
+			TextSize = 10, FontFace = Theme.Mono, TextColor3 = index == 1 and Theme.Bone or Theme.Bone4,
 			LayoutOrder = index, Parent = tabRow,
 		})
 

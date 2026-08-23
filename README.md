@@ -3,7 +3,7 @@
 A script menu library for Roblox. The repo holds one file — **`PrismUI.lua`** — served over a CDN. Your own scripts stay on your machine and pull it in at runtime.
 
 ```lua
-local Prism = loadstring(game:HttpGet("https://cdn.jsdelivr.net/gh/S2kh/prism@v1.0.2/PrismUI.lua"))()
+local Prism = loadstring(game:HttpGet("https://cdn.jsdelivr.net/gh/S2kh/prism@v1.1.0/PrismUI.lua"))()
 
 local Window = Prism:CreateWindow({ Name = "PRISM" })
 local Tab    = Window:AddTab("Config & Themes")
@@ -16,7 +16,7 @@ Sec:AddToggle({ Text = "Glow effects", Desc = "bloom behind the panel",
 
 That is the whole integration. The library returns `Prism`, reads nothing from the caller, and touches no files.
 
-**Pin a tag, never a branch.** `@v1.0.2` is immutable and cached forever. `@main` is cached about 12 hours at the edge, so after a fix is pushed some users get the old file and some get the new one for half a day — every bug report stops matching the code. `https://raw.githubusercontent.com/S2kh/prism/main/PrismUI.lua` is the 5-minute-cache URL to test against; hand out tags.
+**Pin a tag, never a branch.** `@v1.1.0` is immutable and cached forever. `@main` is cached about 12 hours at the edge, so after a fix is pushed some users get the old file and some get the new one for half a day — every bug report stops matching the code. `https://raw.githubusercontent.com/S2kh/prism/main/PrismUI.lua` is the 5-minute-cache URL to test against; hand out tags.
 
 Loading from disk instead: `loadstring(readfile("PrismUI.lua"))()`. On single-file executors, paste `PrismUI.lua` above your script and drop the `loadstring` line.
 
@@ -25,7 +25,7 @@ Loading from disk instead: `loadstring(readfile("PrismUI.lua"))()`. On single-fi
 The one-liner has no recourse if the CDN is unreachable. This tries jsDelivr, falls back to GitHub raw, and caches the library to `prism/lib_<version>.lua` so relaunches are instant:
 
 ```lua
-local PRISM_VERSION = "v1.0.2"   -- a git TAG, not a branch
+local PRISM_VERSION = "v1.1.0"   -- a git TAG, not a branch
 
 local function loadPrism()
 	local sources = {
@@ -113,7 +113,8 @@ On desktop, hiding the menu fires a notification naming the live toggle key inst
 
 ## Swaps to make
 
-- **Fonts.** Saira and Azeret Mono aren't on Roblox. `Theme.Display` / `Theme.Bold` / `Theme.Mono` are Gotham + Code. Swap in a `FontFace` if you have the assets uploaded.
+- **Fonts.** Saira and Azeret Mono aren't on Roblox. The nearest built-ins are Titillium Web and Roboto Mono, set as `FontFace` values so the mockup's 500/600/700 weights survive. Swap in your own `FontFace` if you have the real families uploaded.
+- **Letter-spacing has no Roblox equivalent.** The mockup tracks mono labels at `.1em`–`.24em`; there is no property for it, and padding a monospace string with spaces overshoots by roughly 4x. Only the wordmark fakes it, where a real space at 22px lands close to `.3em`.
 - **`Theme.GlowAsset`** is the standard 9-slice soft shadow (`6014261993`). Replace with your own if you want a tighter bloom.
 - **Grain and scanlines** use tiled `2454009026`. Any 1px noise tile works.
 - **`backdrop-filter`** has no equivalent — the chassis is `BackgroundTransparency 0.12` and `Window.Blur` is a `Lighting.BlurEffect` the blur slider drives.
