@@ -3,7 +3,7 @@
 	Roblox port of "Prism Script Menu v2.dc.html" — same palette, sizes, easing and behavior.
 
 	USAGE
-		local Prism  = loadstring(game:HttpGet("https://cdn.jsdelivr.net/gh/S2kh/prism@v1.3.0/PrismUI.lua"))()
+		local Prism  = loadstring(game:HttpGet("https://cdn.jsdelivr.net/gh/S2kh/prism@v1.3.1/PrismUI.lua"))()
 		-- local file instead:  loadstring(readfile("PrismUI.lua"))()
 		local Window = Prism:CreateWindow({ Name = "PRISM" })
 		local Tab    = Window:AddTab("Config & Themes")
@@ -92,7 +92,7 @@ local KEYPOOL = { "Q","W","E","R","T","F","G","V","B","X","Z","C","H","J","K","N
 
 local Prism = {}
 Prism.__index = Prism
-Prism.Version = "1.3.0"  -- bump every release; the tag in your loadstring URL should match this
+Prism.Version = "1.3.1"  -- bump every release; the tag in your loadstring URL should match this
 Prism.Theme   = Theme
 Prism.Mobile  = MOBILE
 Prism.Flags   = {}     -- every control with a Flag writes here; this is what a config saves
@@ -117,14 +117,21 @@ end
 local function cfgPath(name) return Prism.Folder .. "/" .. name .. ".json" end
 local SETTINGS_FILE = "settings"
 
+-- executors without listfiles still see every config saved this session (KNOWN),
+-- and settings.json remembers names across sessions so the list survives a rejoin
+local KNOWN = {}
 function Prism:ListConfigs()
-	local names = {}
-	if listfiles and isfolder and isfolder(self.Folder) then
-		for _, f in ipairs(listfiles(self.Folder)) do
-			local n = f:match("([^/\\]+)%.json$")
-			if n and n ~= SETTINGS_FILE then table.insert(names, n) end
+	local seen, names = {}, {}
+	local function add(n)
+		if n and n ~= SETTINGS_FILE and not seen[n] and isfile and isfile(cfgPath(n)) then
+			seen[n] = true table.insert(names, n)
 		end
 	end
+	if listfiles and isfolder and isfolder(self.Folder) then
+		for _, f in ipairs(listfiles(self.Folder)) do add(f:match("([^/\\]+)%.json$")) end
+	end
+	for n in pairs(KNOWN) do add(n) end
+	for _, n in ipairs(self:GetSettings().Known or {}) do add(n) end
 	table.sort(names)
 	return names
 end
@@ -137,6 +144,9 @@ function Prism:SaveConfig(name)
 	local ok, err = pcall(writefile, cfgPath(name),
 		HttpService:JSONEncode({ Flags = self.Flags, Binds = self.Binds }))
 	if not ok then return false, tostring(err) end
+	KNOWN[name] = true
+	local known = self:GetSettings().Known or {}
+	if not table.find(known, name) then table.insert(known, name) self:SetSetting("Known", known) end
 	return true
 end
 
@@ -335,6 +345,53 @@ end
 local function keyName(code)
 	local n = tostring(code):gsub("Enum.KeyCode.", "")
 	return n
+end
+
+-- Roboto Mono has no ✕ / ▾ glyphs, so the close mark and dropdown chevrons are
+-- drawn from 1px lines instead of text.
+local function glyphX(parent, size, color)
+	local holder = new("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromOffset(size, size), BackgroundTransparency = 1, ZIndex = 2, Parent = parent,
+	})
+	for _, rot in ipairs({ 45, -45 }) do
+		new("Frame", {
+			AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+			Size = UDim2.new(0, math.floor(size * 1.3), 0, 1), Rotation = rot,
+			BackgroundColor3 = color, BorderSizePixel = 0, ZIndex = 2, Parent = holder,
+		})
+	end
+	return holder
+end
+local function glyphMinus(parent, size, color)
+	return new("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromOffset(size, 2), BackgroundColor3 = color, BorderSizePixel = 0, ZIndex = 2, Parent = parent,
+	})
+end
+local function glyphChevron(parent, color)
+	local holder = new("Frame", {
+		AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -11, 0.5, 0),
+		Size = UDim2.fromOffset(8, 8), BackgroundTransparency = 1, ZIndex = 2, Parent = parent,
+	})
+	for _, s in ipairs({ { 45, -2 }, { -45, 2 } }) do
+		new("Frame", {
+			AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, s[2], 0.5, -1),
+			Size = UDim2.fromOffset(6, 1), Rotation = s[1],
+			BackgroundColor3 = color, BorderSizePixel = 0, ZIndex = 2, Parent = holder,
+		})
+	end
+	return holder
+end
+
+-- Popups (bind menus, dropdown lists) live in the window's overlay layer so later
+-- rows can't paint over them. Converts an instance's screen position into the
+-- overlay's own (pre-UIScale) pixels.
+local function overlayXY(win, inst)
+	local sc = win.Scale.Scale
+	if sc <= 0 then sc = 1 end
+	local d = inst.AbsolutePosition - win.Window.AbsolutePosition
+	return d.X / sc, d.Y / sc, inst.AbsoluteSize.X / sc, inst.AbsoluteSize.Y / sc
 end
 
 --==============================================================
@@ -578,28 +635,21 @@ function Section:AddToggle(o)
 
 			-- right: calc(100% + 12px) off the LED+switch group, i.e. clear of the
 			-- 9px gap and the LED before the 12px margin
-			local MH, MX = 162, -(12 + 9 + (MOBILE and 6 or 5))
+			local MH, MX = 162, 12 + 9 + (MOBILE and 6 or 5)
+			-- in the overlay layer: right edge MX left of the LED+switch group, vertically
+			-- centred on the switch, clamped inside the scrolling body
+			local wx, wy, _, wh = overlayXY(win, well)
+			local bx, by, _, bh = overlayXY(win, win._body)
+			local top = math.clamp(wy + wh / 2 - MH / 2, by + 10, by + bh - MH - 10)
 			menu = new("Frame", {
-				AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(0, MX, 0.5, -MH / 2),
+				AnchorPoint = Vector2.new(1, 0), Position = UDim2.fromOffset(wx - MX, top),
 				Size = UDim2.fromOffset(196, MH), BackgroundColor3 = Color3.fromHex("0C0C0E"),
-				ClipsDescendants = true, ZIndex = 40, Parent = well,
+				ClipsDescendants = true, ZIndex = 40, Parent = win._overlay,
 			})
 			stroke(menu, Color3.fromHex("33322B"))
 			glow(menu, Theme.Accent, 0.72, 22)
 			pad(menu, 11)
 			list(menu, 7)
-
-			-- clamp inside the scrolling body so it never clips
-			local body = win._body
-			task.defer(function()
-				if not menu then return end
-				local top = menu.AbsolutePosition.Y
-				local minY, maxY = body.AbsolutePosition.Y + 10, body.AbsolutePosition.Y + body.AbsoluteSize.Y - MH - 10
-				local clamped = math.clamp(top, minY, maxY)
-				if clamped ~= top then
-					menu.Position = UDim2.new(0, MX, 0.5, -MH / 2 + (clamped - top))
-				end
-			end)
 
 			local head = label(menu, "BIND · " .. string.upper(o.Text or ""), 8, Theme.Bone4, Theme.Mono, true)
 			head.LayoutOrder = 1
@@ -916,10 +966,7 @@ function Section:_ddButton(r, textFn)
 	txt.Position = UDim2.fromOffset(11, 0)
 	txt.Size = UDim2.new(1, -32, 1, 0)
 	txt.TextYAlignment = Enum.TextYAlignment.Center
-	local chev = new("TextLabel", {
-		AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -10, 0.5, 0), Size = UDim2.fromOffset(10, 10),
-		BackgroundTransparency = 1, Text = "▾", TextSize = 10, FontFace = Theme.Mono, TextColor3 = Theme.Bone4, Parent = btn,
-	})
+	local chev = glyphChevron(btn, Theme.Bone4)
 	return anchor, btn, txt, chev
 end
 
@@ -939,9 +986,10 @@ function Section:AddDropdown(o)
 
 		local rowH = MOBILE and 44 or 30
 		local H = #o.Options * rowH + 6
+		local ax, ay, aw, ah = overlayXY(win, anchor)
 		menu = new("Frame", {
-			Position = UDim2.new(0, 0, 1, 4), Size = UDim2.new(1, 0, 0, 0),
-			BackgroundColor3 = Color3.fromHex("0C0C0E"), ClipsDescendants = true, ZIndex = 30, Parent = anchor,
+			Position = UDim2.fromOffset(ax, ay + ah + 4), Size = UDim2.fromOffset(aw, 0),
+			BackgroundColor3 = Color3.fromHex("0C0C0E"), ClipsDescendants = true, ZIndex = 30, Parent = win._overlay,
 		})
 		stroke(menu, Theme.Edge2)
 		pad(menu, 3)
@@ -956,7 +1004,7 @@ function Section:AddDropdown(o)
 				if o.Callback then task.spawn(o.Callback, value) end
 			end)
 		end
-		tw(menu, SMOOTH, { Size = UDim2.new(1, 0, 0, H) })
+		tw(menu, SMOOTH, { Size = UDim2.fromOffset(aw, H) })
 		win._closePopups = close
 	end)
 
@@ -993,9 +1041,10 @@ function Section:AddMultiDropdown(o)
 		tw(chev, FAST, { Rotation = 180 })
 
 		local rowH = MOBILE and 44 or 30
+		local ax, ay, aw, ah = overlayXY(win, anchor)
 		menu = new("Frame", {
-			Position = UDim2.new(0, 0, 1, 4), Size = UDim2.new(1, 0, 0, 0),
-			BackgroundColor3 = Color3.fromHex("0C0C0E"), ClipsDescendants = true, ZIndex = 30, Parent = anchor,
+			Position = UDim2.fromOffset(ax, ay + ah + 4), Size = UDim2.fromOffset(aw, 0),
+			BackgroundColor3 = Color3.fromHex("0C0C0E"), ClipsDescendants = true, ZIndex = 30, Parent = win._overlay,
 		})
 		stroke(menu, Theme.Edge2)
 		pad(menu, 3)
@@ -1024,7 +1073,7 @@ function Section:AddMultiDropdown(o)
 				if o.Callback then task.spawn(o.Callback, selected) end
 			end)
 		end
-		tw(menu, SMOOTH, { Size = UDim2.new(1, 0, 0, #o.Options * rowH + 6) })
+		tw(menu, SMOOTH, { Size = UDim2.fromOffset(aw, #o.Options * rowH + 6) })
 		win._closePopups = close
 	end)
 
@@ -1500,11 +1549,11 @@ function Prism:CreateWindow(o)
 	local hb = MOBILE and 44 or 28
 	local hideBtn = new("TextButton", {
 		AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, 0, 0.5, 0), Size = UDim2.fromOffset(hb, hb),
-		BackgroundColor3 = Theme.Well, AutoButtonColor = false,
-		Text = MOBILE and "–" or "✕", TextSize = MOBILE and 18 or 11, FontFace = Theme.Mono,
-		TextColor3 = MOBILE and Theme.Bone2 or Theme.Bone4, Parent = header,
+		BackgroundColor3 = Theme.Well, AutoButtonColor = false, Text = "", Parent = header,
 	})
 	stroke(hideBtn, Theme.Edge2)
+	-- ✕ on desktop, – on mobile: drawn, since the mono font lacks the glyphs
+	if MOBILE then glyphMinus(hideBtn, 16, Theme.Bone2) else glyphX(hideBtn, 9, Theme.Bone4) end
 
 	----------------------------------------------------------------
 	-- tab strip + sliding underline
@@ -1533,6 +1582,12 @@ function Prism:CreateWindow(o)
 		BackgroundTransparency = 1, ClipsDescendants = true, ZIndex = 4, Parent = win,
 	})
 	self._body = body
+
+	-- popup layer: bind menus and dropdown lists are parented here so they sit
+	-- above every row (sibling ZIndex only orders against siblings)
+	self._overlay = new("Frame", {
+		Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, ZIndex = 50, Parent = win,
+	})
 
 	----------------------------------------------------------------
 	-- notifications + mobile floating icon
@@ -1579,6 +1634,10 @@ function Prism:CreateWindow(o)
 			Visible = index == 1, ClipsDescendants = true, Parent = body,
 		})
 		list(page, 0)
+		-- overlay popups are positioned absolutely; scrolling would leave them floating
+		page:GetPropertyChangedSignal("CanvasPosition"):Connect(function()
+			if self._closePopups then self._closePopups() self._closePopups = nil end
+		end)
 
 		local btn = new("TextButton", {
 			Size = UDim2.fromOffset(0, MOBILE and 48 or 40), AutomaticSize = Enum.AutomaticSize.X,
@@ -1804,9 +1863,19 @@ function Prism:CreateWindow(o)
 		end
 
 		Saves:AddButtonRow({
+			-- NEW writes <name>.json right away so it appears in the list above and
+			-- LOAD / SAVE / DELETE have something to act on
 			{ Text = "New", Callback = function()
-				NameBox.Set("")
-				Prism:Notify("NEW CONFIG", "name it, then save")
+				local n = autoloadName()
+				if not n then return Prism:Notify("NAME REQUIRED", "type a name in the box, then NEW") end
+				if isfile and isfile(cfgPath(n)) then
+					return Prism:Notify("ALREADY EXISTS", n .. ".json — use SAVE to overwrite")
+				end
+				local ok, err = Prism:SaveConfig(n)
+				if not ok then return Prism:Notify("CAN'T CREATE", tostring(err)) end
+				Prism.Loaded = n
+				List.Refresh() List.SetLoaded(n) List.Select(n)
+				Prism:Notify("NEW CONFIG", n .. ".json created")
 			end },
 			{ Text = "Load", Callback = function()
 				local n = autoloadName()

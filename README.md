@@ -3,7 +3,7 @@
 A script menu library for Roblox. The repo holds one file — **`PrismUI.lua`** — served over a CDN. Your own scripts stay on your machine and pull it in at runtime.
 
 ```lua
-local Prism = loadstring(game:HttpGet("https://cdn.jsdelivr.net/gh/S2kh/prism@v1.3.0/PrismUI.lua"))()
+local Prism = loadstring(game:HttpGet("https://cdn.jsdelivr.net/gh/S2kh/prism@v1.3.1/PrismUI.lua"))()
 
 local Window = Prism:CreateWindow({ Name = "PRISM" })
 local Tab    = Window:AddTab("Main")
@@ -15,7 +15,7 @@ Sec:AddToggle({ Text = "Speed", Desc = "walkspeed override", Flag = "speed",
 
 That is the whole integration. The library builds the **Config & Themes** and **Settings** tabs itself (accent, preset, blur, radius, glow, config save / load / delete / autoload, keybinds, UI scale, notification corner, reduce animations, low-end mode, unload) — they land after your own tabs. Pass `Builtin = false` to `CreateWindow` to skip them, `Autoload = false` to skip applying the saved autoload config.
 
-**Pin a tag, never a branch.** `@v1.3.0` is immutable and cached forever. `@main` is cached about 12 hours at the edge, so after a fix is pushed some users get the old file and some get the new one for half a day — every bug report stops matching the code. `https://raw.githubusercontent.com/S2kh/prism/main/PrismUI.lua` is the 5-minute-cache URL to test against; hand out tags.
+**Pin a tag, never a branch.** `@v1.3.1` is immutable and cached forever. `@main` is cached about 12 hours at the edge, so after a fix is pushed some users get the old file and some get the new one for half a day — every bug report stops matching the code. `https://raw.githubusercontent.com/S2kh/prism/main/PrismUI.lua` is the 5-minute-cache URL to test against; hand out tags.
 
 Loading from disk instead: `loadstring(readfile("PrismUI.lua"))()`. On single-file executors, paste `PrismUI.lua` above your script and drop the `loadstring` line.
 
@@ -24,7 +24,7 @@ Loading from disk instead: `loadstring(readfile("PrismUI.lua"))()`. On single-fi
 The one-liner has no recourse if the CDN is unreachable. This tries jsDelivr, falls back to GitHub raw, and caches the library to `prism/lib_<version>.lua` so relaunches are instant:
 
 ```lua
-local PRISM_VERSION = "v1.3.0"   -- a git TAG, not a branch
+local PRISM_VERSION = "v1.3.1"   -- a git TAG, not a branch
 
 local function loadPrism()
 	local sources = {
