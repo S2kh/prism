@@ -3,20 +3,19 @@
 A script menu library for Roblox. The repo holds one file — **`PrismUI.lua`** — served over a CDN. Your own scripts stay on your machine and pull it in at runtime.
 
 ```lua
-local Prism = loadstring(game:HttpGet("https://cdn.jsdelivr.net/gh/S2kh/prism@v1.2.0/PrismUI.lua"))()
+local Prism = loadstring(game:HttpGet("https://cdn.jsdelivr.net/gh/S2kh/prism@v1.3.0/PrismUI.lua"))()
 
 local Window = Prism:CreateWindow({ Name = "PRISM" })
-local Tab    = Window:AddTab("Config & Themes")
-local Sec    = Tab:AddSection("Appearance")
+local Tab    = Window:AddTab("Main")
+local Sec    = Tab:AddSection("Player")
 
-Sec:AddToggle({ Text = "Glow effects", Desc = "bloom behind the panel",
-                Default = true, Flag = "glow",
+Sec:AddToggle({ Text = "Speed", Desc = "walkspeed override", Flag = "speed",
                 Callback = function(v) print(v) end })
 ```
 
-That is the whole integration. The library returns `Prism`, reads nothing from the caller, and touches no files.
+That is the whole integration. The library builds the **Config & Themes** and **Settings** tabs itself (accent, preset, blur, radius, glow, config save / load / delete / autoload, keybinds, UI scale, notification corner, reduce animations, low-end mode, unload) — they land after your own tabs. Pass `Builtin = false` to `CreateWindow` to skip them, `Autoload = false` to skip applying the saved autoload config.
 
-**Pin a tag, never a branch.** `@v1.2.0` is immutable and cached forever. `@main` is cached about 12 hours at the edge, so after a fix is pushed some users get the old file and some get the new one for half a day — every bug report stops matching the code. `https://raw.githubusercontent.com/S2kh/prism/main/PrismUI.lua` is the 5-minute-cache URL to test against; hand out tags.
+**Pin a tag, never a branch.** `@v1.3.0` is immutable and cached forever. `@main` is cached about 12 hours at the edge, so after a fix is pushed some users get the old file and some get the new one for half a day — every bug report stops matching the code. `https://raw.githubusercontent.com/S2kh/prism/main/PrismUI.lua` is the 5-minute-cache URL to test against; hand out tags.
 
 Loading from disk instead: `loadstring(readfile("PrismUI.lua"))()`. On single-file executors, paste `PrismUI.lua` above your script and drop the `loadstring` line.
 
@@ -25,7 +24,7 @@ Loading from disk instead: `loadstring(readfile("PrismUI.lua"))()`. On single-fi
 The one-liner has no recourse if the CDN is unreachable. This tries jsDelivr, falls back to GitHub raw, and caches the library to `prism/lib_<version>.lua` so relaunches are instant:
 
 ```lua
-local PRISM_VERSION = "v1.2.0"   -- a git TAG, not a branch
+local PRISM_VERSION = "v1.3.0"   -- a git TAG, not a branch
 
 local function loadPrism()
 	local sources = {
@@ -98,12 +97,26 @@ Running the script twice is normal, so the library handles it. `CreateWindow` lo
 | `AddConfigList` | scrollable list of `prism/*.json`. Click a row to select it. Opens a group: follow it with `AddInput({ Divider = false })` and `AddButtonRow` for the mockup's config block |
 | `Prism:Notify(title, body, duration)` | ticker with a draining rule |
 | `Section:SetCount(n)` | the number on the right of a section strip |
-| `Window:SetGlow(bool)` | bloom behind the chassis on/off |
+| `Window:SetAccent(Color3 or hex)` | repaints every accent-coloured part of the chassis |
+| `Window:SetGlow(bool)` | bloom behind the chassis on/off (off by default) |
 | `Window:SetLowEnd(bool)` | opaque chassis, no bloom, no blur |
 | `Window:SetNotificationCorner("Bottom Right" / "Bottom Left" / "Top Right")` | where tickers stack |
 | `Prism.Reduced = true` | every tween lands instantly ("Reduce animations") |
+| `Window:Destroy()` / `Window:Destroy(true)` | animated unload / instant (what the panic key uses) |
 
-Every control taking a `Flag` writes into `Prism.Flags`. That table is the whole save file — `HttpService:JSONEncode(Prism.Flags)` and you're done.
+## Configs
+
+Every control taking a `Flag` writes into `Prism.Flags`; toggles with a bound key also write `Prism.Binds[flag] = { Key, Mode }`. The built-in Config tab handles the rest, but the same calls are public:
+
+| Call | Notes |
+|---|---|
+| `Prism:SaveConfig(name)` | writes `prism/<name>.json` = `{ Flags, Binds }` |
+| `Prism:LoadConfig(name)` | pushes every saved value back into its control (callbacks fire) and re-applies binds |
+| `Prism:DeleteConfig(name)` / `Prism:ListConfigs()` | |
+| `Prism:SetSetting("Autoload", name or false)` | `prism/settings.json`; `Window:Autoload()` applies it (runs automatically after your tabs are built) |
+| `Prism.Folder` | `"prism"` — change before `CreateWindow` to use another folder |
+
+Built-in controls use `prism_*` flags (`prism_accent`, `prism_blur`, `prism_scale`, `prism_toggle_key`, …) so they never collide with yours.
 
 ## Mobile
 
@@ -125,4 +138,4 @@ On desktop, hiding the menu fires a notification naming the live toggle key inst
 
 ## Theming at runtime
 
-`Window:SetAccent(Color3)` repaints the chassis glow and tab underline; controls pick up `Theme.Accent` on their next paint. Set `Prism.Theme.Accent` before building for a different default.
+`Window:SetAccent(Color3 or "C77DFF")` repaints everything accent-coloured in one sweep — switches, faders, section ticks, tab underline, tickers. Set `Prism.Theme.Accent` before building for a different default; the built-in Accent swatches and Preset dropdown call this for you.

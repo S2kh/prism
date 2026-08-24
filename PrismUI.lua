@@ -3,7 +3,7 @@
 	Roblox port of "Prism Script Menu v2.dc.html" — same palette, sizes, easing and behavior.
 
 	USAGE
-		local Prism  = loadstring(game:HttpGet("https://cdn.jsdelivr.net/gh/S2kh/prism@v1.2.0/PrismUI.lua"))()
+		local Prism  = loadstring(game:HttpGet("https://cdn.jsdelivr.net/gh/S2kh/prism@v1.3.0/PrismUI.lua"))()
 		-- local file instead:  loadstring(readfile("PrismUI.lua"))()
 		local Window = Prism:CreateWindow({ Name = "PRISM" })
 		local Tab    = Window:AddTab("Config & Themes")
@@ -92,11 +92,94 @@ local KEYPOOL = { "Q","W","E","R","T","F","G","V","B","X","Z","C","H","J","K","N
 
 local Prism = {}
 Prism.__index = Prism
-Prism.Version = "1.2.0"  -- bump every release; the tag in your loadstring URL should match this
+Prism.Version = "1.3.0"  -- bump every release; the tag in your loadstring URL should match this
 Prism.Theme   = Theme
 Prism.Mobile  = MOBILE
-Prism.Flags   = {}     -- every control with a Flag writes here; this is what you save/load
+Prism.Flags   = {}     -- every control with a Flag writes here; this is what a config saves
+Prism.Binds   = {}     -- Flag -> { Key = "F", Mode = "Toggle" } for toggles with a bound key
 Prism.Reduced = false  -- true = every tween is instant (the mockup's "Reduce animations")
+Prism.Folder  = "prism"
+
+-- Flag -> control API, so LoadConfig can push saved values back into the controls
+local CONTROLS = {}
+local function register(flag, api)
+	if flag then CONTROLS[flag] = api end
+end
+
+--==============================================================
+-- CONFIG FILES  (prism/<name>.json = { Flags = {...}, Binds = {...} };
+--                prism/settings.json = { Autoload = "<name>" })
+--==============================================================
+local function hasFS() return writefile and readfile and isfile end
+local function ensureFolder()
+	if makefolder and not (isfolder and isfolder(Prism.Folder)) then pcall(makefolder, Prism.Folder) end
+end
+local function cfgPath(name) return Prism.Folder .. "/" .. name .. ".json" end
+local SETTINGS_FILE = "settings"
+
+function Prism:ListConfigs()
+	local names = {}
+	if listfiles and isfolder and isfolder(self.Folder) then
+		for _, f in ipairs(listfiles(self.Folder)) do
+			local n = f:match("([^/\\]+)%.json$")
+			if n and n ~= SETTINGS_FILE then table.insert(names, n) end
+		end
+	end
+	table.sort(names)
+	return names
+end
+
+function Prism:SaveConfig(name)
+	name = (name or ""):gsub("^%s+", ""):gsub("%s+$", "")
+	if name == "" then return false, "name required" end
+	if not hasFS() then return false, "this executor can't write files" end
+	ensureFolder()
+	local ok, err = pcall(writefile, cfgPath(name),
+		HttpService:JSONEncode({ Flags = self.Flags, Binds = self.Binds }))
+	if not ok then return false, tostring(err) end
+	return true
+end
+
+-- pushes every saved flag back into its control (firing callbacks) and re-applies binds
+function Prism:LoadConfig(name)
+	name = (name or ""):gsub("^%s+", ""):gsub("%s+$", "")
+	if name == "" or not hasFS() or not isfile(cfgPath(name)) then return false, "not found" end
+	local ok, data = pcall(function() return HttpService:JSONDecode(readfile(cfgPath(name))) end)
+	if not ok or type(data) ~= "table" then return false, "corrupt file" end
+	local flags = type(data.Flags) == "table" and data.Flags or data   -- accept a bare Flags dump too
+	local binds = type(data.Binds) == "table" and data.Binds or {}
+	for flag, v in pairs(flags) do
+		local c = CONTROLS[flag]
+		if c and c.Set then pcall(c.Set, v, true) else self.Flags[flag] = v end
+	end
+	for flag, b in pairs(binds) do
+		local c = CONTROLS[flag]
+		if c and c.SetBind and type(b) == "table" then pcall(c.SetBind, b.Key, b.Mode) end
+	end
+	self.Loaded = name
+	return true
+end
+
+function Prism:DeleteConfig(name)
+	if not (delfile and isfile) or not name or not isfile(cfgPath(name)) then return false end
+	pcall(delfile, cfgPath(name))
+	if self.Loaded == name then self.Loaded = nil end
+	return true
+end
+
+function Prism:GetSettings()
+	if not hasFS() or not isfile(cfgPath(SETTINGS_FILE)) then return {} end
+	local ok, t = pcall(function() return HttpService:JSONDecode(readfile(cfgPath(SETTINGS_FILE))) end)
+	return (ok and type(t) == "table") and t or {}
+end
+
+function Prism:SetSetting(key, value)
+	if not hasFS() then return end
+	local t = self:GetSettings()
+	t[key] = value
+	ensureFolder()
+	pcall(writefile, cfgPath(SETTINGS_FILE), HttpService:JSONEncode(t))
+end
 
 --==============================================================
 -- CONNECTION REGISTRY
@@ -129,13 +212,26 @@ end
 --==============================================================
 -- helpers
 --==============================================================
+-- Any property set to Theme.Accent at build time is tagged (attribute "PrismAccent"
+-- = comma list of property names) so Window:SetAccent can repaint the whole
+-- chassis in one sweep. Conditional paints (toggle slots, config dots) register a
+-- closure in PAINTERS instead.
+local PAINTERS = {}
 local function new(class, props, children)
 	local i = Instance.new(class)
-	for k, v in pairs(props or {}) do if k ~= "Parent" then i[k] = v end end
+	local tags
+	for k, v in pairs(props or {}) do
+		if k ~= "Parent" then
+			i[k] = v
+			if typeof(v) == "Color3" and v == Theme.Accent then tags = tags and (tags .. "," .. k) or k end
+		end
+	end
+	if tags then i:SetAttribute("PrismAccent", tags) end
 	for _, c in ipairs(children or {}) do c.Parent = i end
 	if props and props.Parent then i.Parent = props.Parent end
 	return i
 end
+local function untag(i) i:SetAttribute("PrismAccent", nil) return i end
 
 local function corner(p, r) return new("UICorner", { CornerRadius = UDim.new(0, r or 0), Parent = p }) end
 
@@ -597,7 +693,9 @@ function Section:AddToggle(o)
 				if o.BindChanged then task.spawn(o.BindChanged, bind) end
 				return
 			end
-			if gpe or not bind.Key or i.KeyCode ~= bind.Key then return end
+			-- gameProcessedEvent is true for keys the game also uses (Shift = shift-lock),
+			-- so only a focused text box blocks a bind
+			if UserInputService:GetFocusedTextBox() or not bind.Key or i.KeyCode ~= bind.Key then return end
 			if bind.Mode == "Toggle" then set(not state, true)
 			elseif bind.Mode == "Hold" then set(true, true) end
 		end)
@@ -608,12 +706,31 @@ function Section:AddToggle(o)
 
 	set(bind.Mode == "Always" and true or state, false)
 	refreshBadge()
+	table.insert(PAINTERS, paint)   -- slot / LED colours are chosen at paint time
 
-	return {
-		Set = set, Get = function() return state end,
-		SetBind = function(key, mode) bind.Key, bind.Mode = key, mode or bind.Mode refreshBadge() paint() end,
+	-- binds are saved by key *name* so the JSON stays readable
+	local function syncBind()
+		if not o.Flag then return end
+		Prism.Binds[o.Flag] = (bind.Key or bind.Mode ~= "Toggle")
+			and { Key = bind.Key and keyName(bind.Key) or nil, Mode = bind.Mode } or nil
+	end
+	local origRefresh = refreshBadge
+	refreshBadge = function() origRefresh() syncBind() end
+	syncBind()
+
+	local api = {
+		Set = function(v, fire) set(v and true or false, fire ~= false) end,
+		Get = function() return state end,
+		SetBind = function(key, mode)
+			if type(key) == "string" then key = Enum.KeyCode[key] end   -- accept a saved name
+			bind.Key, bind.Mode = key, mode or bind.Mode
+			if bind.Mode == "Always" then set(true, true) end
+			refreshBadge() paint()
+		end,
 		GetBind = function() return bind end,
 	}
+	register(o.Flag, api)
+	return api
 end
 
 --------------------------------------------------------------------
@@ -696,7 +813,9 @@ function Section:AddSlider(o)
 	end)
 
 	set(value, false)
-	return { Set = set, Get = function() return value end }
+	local api = { Set = function(v, fire) set(tonumber(v) or value, fire ~= false) end, Get = function() return value end }
+	register(o.Flag, api)
+	return api
 end
 
 --------------------------------------------------------------------
@@ -749,7 +868,20 @@ function Section:AddKeybind(o)
 		if o.Changed then task.spawn(o.Changed, key) end
 	end)
 
-	return { Get = function() return key end }
+	if o.Flag then Prism.Flags[o.Flag] = keyName(key) end
+	local api = {
+		Get = function() return key end,
+		Set = function(k, fire)
+			if type(k) == "string" then local ok, kc = pcall(function() return Enum.KeyCode[k] end) k = ok and kc or nil end
+			if not k then return end
+			key = k
+			btn.Text = string.upper(keyName(key))
+			if o.Flag then Prism.Flags[o.Flag] = keyName(key) end
+			if fire ~= false and o.Changed then task.spawn(o.Changed, key) end
+		end,
+	}
+	register(o.Flag, api)
+	return api
 end
 
 --------------------------------------------------------------------
@@ -829,7 +961,19 @@ function Section:AddDropdown(o)
 	end)
 
 	if o.Flag then Prism.Flags[o.Flag] = value end
-	return { Get = function() return value end }
+	local api = {
+		Get = function() return value end,
+		Set = function(v, fire)
+			if not table.find(o.Options, v) then return end
+			value = v
+			txt.Text = string.upper(value)
+			close()
+			if o.Flag then Prism.Flags[o.Flag] = value end
+			if fire ~= false and o.Callback then task.spawn(o.Callback, value) end
+		end,
+	}
+	register(o.Flag, api)
+	return api
 end
 
 function Section:AddMultiDropdown(o)
@@ -885,7 +1029,20 @@ function Section:AddMultiDropdown(o)
 	end)
 
 	if o.Flag then Prism.Flags[o.Flag] = selected end
-	return { Get = function() return selected end }
+	local api = {
+		Get = function() return selected end,
+		Set = function(v, fire)
+			if type(v) ~= "table" then return end
+			table.clear(selected)
+			for _, x in ipairs(v) do if table.find(o.Options, x) then table.insert(selected, x) end end
+			txt.Text = lab()
+			close()
+			if o.Flag then Prism.Flags[o.Flag] = selected end
+			if fire ~= false and o.Callback then task.spawn(o.Callback, selected) end
+		end,
+	}
+	register(o.Flag, api)
+	return api
 end
 
 --------------------------------------------------------------------
@@ -928,7 +1085,8 @@ function Section:AddColorPicker(o)
 			Size = UDim2.fromScale(1, 1), BackgroundColor3 = c, AutoButtonColor = false,
 			Text = "", Parent = slot,
 		})
-		btns[hex] = { btn = b, slot = slot, stroke = stroke(b, Color3.new(0, 0, 0), 0.4), glow = glow(b, c, 1, 10) }
+		-- a swatch that happens to equal the current accent must NOT follow accent changes
+		btns[hex] = { btn = untag(b), slot = slot, stroke = stroke(b, Color3.new(0, 0, 0), 0.4), glow = untag(glow(b, c, 1, 10)) }
 		b.MouseButton1Click:Connect(function()
 			value = c
 			paint(hex)
@@ -942,7 +1100,24 @@ function Section:AddColorPicker(o)
 		if string.upper(hex) == defHex then paint(hex) value = Color3.fromHex(hex) break end
 	end
 	if o.Flag and currentHex then Prism.Flags[o.Flag] = currentHex end
-	return { Get = function() return value end, Set = function(hex) paint(hex) value = Color3.fromHex(hex) end }
+	local api = {
+		Get = function() return value end,
+		Set = function(hex, fire)
+			if typeof(hex) == "Color3" then hex = hex:ToHex() end
+			hex = string.upper(tostring(hex or "")):gsub("^#", "")
+			if not table.find(hexes, hex) then
+				for _, h in ipairs(hexes) do if string.upper(h) == hex then hex = h end end
+			end
+			local ok, c = pcall(Color3.fromHex, hex)
+			if not ok then return end
+			value = c
+			paint(hex)
+			if o.Flag then Prism.Flags[o.Flag] = hex end
+			if fire ~= false and o.Callback then task.spawn(o.Callback, c) end
+		end,
+	}
+	register(o.Flag, api)
+	return api
 end
 
 --------------------------------------------------------------------
@@ -979,7 +1154,16 @@ function Section:AddInput(o)
 	end)
 
 	if o.Flag then Prism.Flags[o.Flag] = box.Text end
-	return { Get = function() return box.Text end, Set = function(t) box.Text = t end }
+	local api = {
+		Get = function() return box.Text end,
+		Set = function(t, fire)
+			box.Text = tostring(t or "")
+			if o.Flag then Prism.Flags[o.Flag] = box.Text end
+			if fire and o.Callback then task.spawn(o.Callback, box.Text) end
+		end,
+	}
+	register(o.Flag, api)
+	return api
 end
 
 --------------------------------------------------------------------
@@ -1085,19 +1269,17 @@ function Section:AddConfigList(o)
 
 	function api.List()
 		if o.List then return o.List() end
-		local names = {}
-		if listfiles and isfolder and isfolder(folder) then
-			for _, f in ipairs(listfiles(folder)) do
-				local n = f:match("([^/\\]+)%.json$")
-				if n then table.insert(names, n) end
-			end
-		end
+		local keep = Prism.Folder
+		Prism.Folder = folder
+		local names = Prism:ListConfigs()
+		Prism.Folder = keep
 		return names
 	end
 
 	function api.Refresh()
 		for _, row in pairs(rows) do row.Button:Destroy() end
 		rows = {}
+		loaded = Prism.Loaded or loaded
 		local names = api.List()
 		empty.Visible = #names == 0
 		if o.OnCount then task.spawn(o.OnCount, #names) end
@@ -1125,6 +1307,7 @@ function Section:AddConfigList(o)
 	end
 
 	api.Refresh()
+	table.insert(PAINTERS, function() api.SetLoaded(loaded) end)
 	return api
 end
 
@@ -1232,7 +1415,7 @@ function Prism:CreateWindow(o)
 	})
 	corner(win, Theme.Radius)
 	stroke(win, Theme.Edge)
-	local chassisGlow = glow(win, Theme.Accent, 0.62, 34)
+	local chassisGlow = glow(win, Theme.Accent, 1, 34)   -- off until SetGlow(true); glow defaults off
 	self.Window = win
 	self.Scale = new("UIScale", { Scale = 1, Parent = win })
 
@@ -1264,18 +1447,6 @@ function Prism:CreateWindow(o)
 		ImageColor3 = Color3.new(0, 0, 0), ScaleType = Enum.ScaleType.Tile, TileSize = UDim2.fromOffset(200, 3),
 		Size = UDim2.fromScale(1, 1), ZIndex = 12, Parent = win,
 	})
-	-- specular: radial-gradient(460px 320px at mouse) rgba(233,228,216,.06) — desktop only
-	if not MOBILE then
-		local spec = new("ImageLabel", {
-			BackgroundTransparency = 1, Image = Theme.GlowAsset, ImageColor3 = Theme.Bone, ImageTransparency = 0.94,
-			ScaleType = Enum.ScaleType.Slice, SliceCenter = Rect.new(49, 49, 450, 450),
-			AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, 0.3, 0),
-			Size = UDim2.fromOffset(460, 320), ZIndex = 11, Parent = win,
-		})
-		win.MouseMoved:Connect(function(x, y)
-			spec.Position = UDim2.fromOffset(x - win.AbsolutePosition.X, y - win.AbsolutePosition.Y)
-		end)
-	end
 	-- corner screws
 	for _, p in ipairs({ { 9, 9, 0, 0 }, { -9, 9, 1, 0 }, { 9, -9, 0, 1 }, { -9, -9, 1, 1 } }) do
 		local s = new("Frame", {
@@ -1419,21 +1590,35 @@ function Prism:CreateWindow(o)
 		local tab = setmetatable({ Page = page, Button = btn, Window = self, Name = name, _order = 1 }, Tab)
 		table.insert(self.Tabs, tab)
 		btn.MouseButton1Click:Connect(function() self:SelectTab(index) end)
+		-- AutomaticSize settles a frame late (and again on UIScale changes): keep the
+		-- underline pinned to the active tab whenever its button moves or resizes
+		local function track() if self.Current == index then self:_placeUnderline(btn, false) end end
+		btn:GetPropertyChangedSignal("AbsoluteSize"):Connect(track)
+		btn:GetPropertyChangedSignal("AbsolutePosition"):Connect(track)
 		if index == 1 then task.defer(function() self:SelectTab(1) end) end
 		return tab
 	end
 
+	-- underline geometry in the strip's own (pre-UIScale) pixels
+	function self:_placeUnderline(btn, animate)
+		local sc = self.Scale.Scale
+		if sc <= 0 then return end
+		local goal = {
+			Position = UDim2.new(0, (btn.AbsolutePosition.X - strip.AbsolutePosition.X) / sc, 1, 0),
+			Size = UDim2.fromOffset(btn.AbsoluteSize.X / sc, 2),
+		}
+		if animate then tw(underline, SLIDE, goal) else underline.Position, underline.Size = goal.Position, goal.Size end
+	end
+
 	function self:SelectTab(i)
+		self.Current = i
 		for n, t in ipairs(self.Tabs) do
 			local on = n == i
 			t.Page.Visible = on
 			tw(t.Button, FAST, { TextColor3 = on and Theme.Bone or Theme.Bone4 })
 			if on then
 				-- underline slides with overshoot, matching the CSS
-				tw(underline, SLIDE, {
-					Position = UDim2.new(0, t.Button.AbsolutePosition.X - strip.AbsolutePosition.X, 1, 0),
-					Size = UDim2.fromOffset(t.Button.AbsoluteSize.X, 2),
-				})
+				self:_placeUnderline(t.Button, true)
 				-- shutter the page in (clip-path inset(0 0 100% 0) -> 0, .34s)
 				t.Page.Position = UDim2.fromOffset(0, 0)
 				t.Page.CanvasPosition = Vector2.new(0, 0)
@@ -1456,8 +1641,10 @@ function Prism:CreateWindow(o)
 		if show then
 			win.Visible, icon.Visible = true, false
 			win.Size = UDim2.fromOffset(SIZE.X.Offset, 2)
-			tw(win, SMOOTH, { Size = SIZE, BackgroundTransparency = 0.12 })
+			tw(win, SMOOTH, { Size = SIZE, BackgroundTransparency = self._lowEnd and 0 or 0.12 })
+			self.Blur.Enabled = self.Blur.Size > 0 and not self._lowEnd   -- backdrop blur returns with the menu
 		else
+			self.Blur.Enabled = false                                      -- and leaves with it
 			tw(win, FAST, { Size = UDim2.fromOffset(SIZE.X.Offset, 2), BackgroundTransparency = 1 })
 			task.delay(0.15, function()
 				if self.Visible then return end
@@ -1477,16 +1664,22 @@ function Prism:CreateWindow(o)
 	hideBtn.MouseButton1Click:Connect(function() self:Toggle(false) end)
 	icon.MouseButton1Click:Connect(function() self:Toggle(true) end)
 
+	-- repaints every accent-tagged property in the chassis, then runs the
+	-- conditional painters (toggle slots / LEDs, config dots)
 	function self:SetAccent(c)
+		if typeof(c) == "string" then c = Color3.fromHex(c) end
 		Theme.Accent = c
-		chassisGlow.ImageColor3 = c
-		underline.BackgroundColor3 = c
-		iconLed.BackgroundColor3 = c
-		-- controls read Theme.Accent on their next paint; new rows pick it up immediately
+		for _, d in ipairs(gui:GetDescendants()) do
+			local tags = d:GetAttribute("PrismAccent")
+			if tags then
+				for prop in string.gmatch(tags, "[^,]+") do pcall(function() d[prop] = c end) end
+			end
+		end
+		for _, p in ipairs(PAINTERS) do task.spawn(p) end
 	end
 
 	-- "Glow effects": the bloom behind the chassis (box-shadow 0 0 90px accent)
-	self._glow, self._lowEnd = true, false
+	self._glow, self._lowEnd = false, false
 	local function paintGlow()
 		local on = self._glow and not self._lowEnd
 		tw(chassisGlow, SMOOTH, { ImageTransparency = on and 0.62 or 1 })
@@ -1511,137 +1704,213 @@ function Prism:CreateWindow(o)
 			top and Enum.VerticalAlignment.Top or Enum.VerticalAlignment.Bottom
 	end
 
-	function self:Destroy()
+	-- Destroy()      = smooth unload: chassis collapses to a hairline and fades, then goes
+	-- Destroy(true)  = instant (panic key, re-injection)
+	function self:Destroy(instant)
+		if self._dead then return end
+		self._dead = true
 		dropConns()
+		table.clear(PAINTERS) table.clear(CONTROLS)
 		if self.Blur then pcall(function() self.Blur:Destroy() end) end
-		pcall(function() gui:Destroy() end)
 		local g = genv()
 		if g.__PRISM_UNLOAD == self._unload then g.__PRISM_UNLOAD = nil end
+
+		if instant or Prism.Reduced or not win.Visible then
+			pcall(function() gui:Destroy() end)
+			return
+		end
+		if self._closePopups then pcall(self._closePopups) self._closePopups = nil end
+		icon.Visible = false
+		-- reverse of the boot: squash to a bright hairline, then let it die out
+		tw(win, TweenInfo.new(0.28, Enum.EasingStyle.Quint, Enum.EasingDirection.In),
+			{ Size = UDim2.fromOffset(SIZE.X.Offset, 2) })
+		task.delay(0.28, function()
+			tw(win, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+				{ Size = UDim2.fromOffset(0, 2), BackgroundTransparency = 1 })
+			tw(chassisGlow, TweenInfo.new(0.22), { ImageTransparency = 1 })
+			task.wait(0.26)
+			pcall(function() gui:Destroy() end)
+		end)
 	end
 
 	-- published so the *next* run of the script can find and unload this one
-	self._unload = function() self:Destroy() end
+	self._unload = function() self:Destroy(true) end
 	G.__PRISM_UNLOAD = self._unload
 
 	----------------------------------------------------------------
 	-- keys (desktop only — mobile uses the header button + icon)
 	----------------------------------------------------------------
 	if not MOBILE then
-		conn(UserInputService.InputBegan, function(i, gpe)
-			if gpe or i.UserInputType ~= Enum.UserInputType.Keyboard then return end
+		conn(UserInputService.InputBegan, function(i)
+			-- not gated on gameProcessedEvent: Shift is "processed" by shift-lock in most
+			-- games, which silently ate the default RightShift toggle
+			if i.UserInputType ~= Enum.UserInputType.Keyboard or UserInputService:GetFocusedTextBox() then return end
 			if i.KeyCode == self.PanicKey then
-				Prism:Notify("PANIC", "ScreenGui:Destroy()")
-				task.wait(0.05)
-				self:Destroy()
+				self:Destroy(true)
 			elseif i.KeyCode == self.ToggleKey then
 				self:Toggle()
 			end
 		end)
 	end
 
+	----------------------------------------------------------------
+	-- built-in CONFIG & THEMES + SETTINGS tabs (the mockup), with the
+	-- config mechanism wired inside the library. Deferred so they land
+	-- after the caller's own tabs; pass Builtin = false to skip them.
+	----------------------------------------------------------------
+	function self:AddBuiltinTabs()
+		if self._builtin then return self._builtin end
+		local settings = Prism:GetSettings()
+		local B = {}
+		self._builtin = B
+
+		------------------------------------------------ CONFIG & THEMES
+		local Config = self:AddTab("Config & Themes")
+		local Look = Config:AddSection("Appearance")
+		Look:SetCount(5)
+
+		Look:AddColorPicker({ Text = "Accent color", Desc = "signal / active state", Flag = "prism_accent",
+			Callback = function(c) self:SetAccent(c) end })
+
+		local PRESETS = { Amethyst = "C77DFF", Midnight = "5B8CFF", Void = "00E5A0", Ember = "FFB020" }
+		Look:AddDropdown({ Text = "Preset", Desc = "full palette swap", Flag = "prism_preset",
+			Options = { "Amethyst", "Midnight", "Void", "Ember" }, Default = "Amethyst",
+			Callback = function(p) if CONTROLS.prism_accent then CONTROLS.prism_accent.Set(PRESETS[p], true) end end })
+
+		Look:AddSlider({ Text = "Backdrop blur", Desc = "behind the chassis", Flag = "prism_blur",
+			Min = 0, Max = 40, Default = 26, Places = 2, Suffix = "PX",
+			Callback = function(v) self.Blur.Size = v self.Blur.Enabled = v > 0 and not self._lowEnd end })
+
+		Look:AddSlider({ Text = "Corner radius", Desc = "chassis edge", Flag = "prism_radius",
+			Min = 0, Max = 24, Default = Theme.Radius, Places = 2, Suffix = "PX",
+			Callback = function(v) win:FindFirstChildOfClass("UICorner").CornerRadius = UDim.new(0, v) end })
+
+		Look:AddToggle({ Text = "Glow effects", Desc = "bloom behind the panel", Default = false, Flag = "prism_glow",
+			Callback = function(v) self:SetGlow(v) end })
+
+		local Saves = Config:AddSection("Configs")
+		local NameBox, List, AutoToggle
+
+		List = Saves:AddConfigList({
+			Loaded = settings.Autoload,
+			OnSelect = function(name) NameBox.Set(name) end,
+			OnCount  = function(n) Saves:SetCount(n) end,
+		})
+		NameBox = Saves:AddInput({ Tag = "NAME", Placeholder = "my-config", Default = settings.Autoload or "default", Divider = false })
+
+		local function autoloadName()
+			local n = NameBox.Get():gsub("^%s+", ""):gsub("%s+$", "")
+			return n ~= "" and n or nil
+		end
+
+		Saves:AddButtonRow({
+			{ Text = "New", Callback = function()
+				NameBox.Set("")
+				Prism:Notify("NEW CONFIG", "name it, then save")
+			end },
+			{ Text = "Load", Callback = function()
+				local n = autoloadName()
+				local ok, err = Prism:LoadConfig(n)
+				if ok then
+					List.SetLoaded(n)
+					Prism:Notify("CONFIG LOADED", n .. ".json applied")
+				else
+					Prism:Notify("NOT FOUND", (n or "untitled") .. ".json — " .. tostring(err))
+				end
+			end },
+			{ Text = "Save", Style = "Primary", Callback = function()
+				local n = autoloadName()
+				if not n then return Prism:Notify("NAME REQUIRED", "type a config name first") end
+				local ok, err = Prism:SaveConfig(n)
+				if not ok then return Prism:Notify("SAVE FAILED", tostring(err)) end
+				Prism.Loaded = n
+				List.Refresh() List.SetLoaded(n)
+				if AutoToggle and AutoToggle.Get() then Prism:SetSetting("Autoload", n) end
+				Prism:Notify("CONFIG SAVED", n .. ".json written")
+			end },
+			{ Text = "Delete", Style = "Danger", Callback = function()
+				local n = autoloadName()
+				if not n or not Prism:DeleteConfig(n) then
+					return Prism:Notify("NOT FOUND", (n or "untitled") .. ".json")
+				end
+				if settings.Autoload == n then Prism:SetSetting("Autoload", false) end
+				NameBox.Set("") List.Refresh()
+				Prism:Notify("CONFIG DELETED", n .. ".json removed")
+			end },
+		})
+
+		AutoToggle = Saves:AddToggle({ Text = "Autoload on join", Desc = "apply this config at spawn",
+			Default = settings.Autoload and true or false,
+			Callback = function(v)
+				local n = autoloadName()
+				if v and n then
+					Prism:SetSetting("Autoload", n)
+					Prism:Notify("AUTOLOAD ON", n .. ".json applies at spawn")
+				else
+					Prism:SetSetting("Autoload", false)
+					if v then Prism:Notify("NAME REQUIRED", "pick or type a config first") end
+				end
+			end })
+
+		------------------------------------------------ SETTINGS
+		local Settings = self:AddTab("Settings")
+		local Iface = Settings:AddSection("Interface")
+		Iface:SetCount(MOBILE and 2 or 4)
+
+		Iface:AddKeybind({ Text = "Toggle menu", Desc = "show / hide the window", Flag = "prism_toggle_key",
+			Default = self.ToggleKey, Changed = function(k) self.ToggleKey = k end })
+		Iface:AddKeybind({ Text = "Panic hide", Desc = "destroys the gui instantly", Flag = "prism_panic_key",
+			Default = self.PanicKey, Changed = function(k) self.PanicKey = k end })
+
+		Iface:AddSlider({ Text = "UI scale", Desc = "whole chassis", Flag = "prism_scale",
+			Min = 75, Max = 125, Step = 5, Default = 100, Places = 3, Suffix = "%",
+			Callback = function(v) self.Scale.Scale = v / 100 end })
+
+		Iface:AddDropdown({ Text = "Notifications", Desc = "corner for tickers", Flag = "prism_notif",
+			Options = { "Bottom Right", "Bottom Left", "Top Right" }, Default = "Bottom Right",
+			Callback = function(c) self:SetNotificationCorner(c) end })
+
+		local Perf = Settings:AddSection("Performance")
+		Perf:SetCount(5)
+
+		Perf:AddToggle({ Text = "Reduce animations", Desc = "cuts every tween to instant", Flag = "prism_reduce",
+			Callback = function(v) Prism.Reduced = v end })
+		Perf:AddToggle({ Text = "Low-end mode", Desc = "drops blur and bloom", Flag = "prism_lowend",
+			Callback = function(v) self:SetLowEnd(v) end })
+		Perf:AddMultiDropdown({ Text = "Auto-disable in", Desc = "game categories to skip", Flag = "prism_disable",
+			Options = { "Obbies", "Simulators", "Shooters", "Roleplay" }, Default = {} })
+		Perf:AddInput({ Tag = "HOOK", Placeholder = "https://discord.com/api/webhooks/…", Flag = "prism_hook" })
+		Perf:AddButton({ Text = "Unload PRISM", Style = "Danger", Tall = true, Divider = false, Callback = function()
+			Prism:Notify("UNLOADED", "ScreenGui:Destroy()")
+			task.wait(0.3)
+			self:Destroy()
+		end })
+
+		B.Config, B.Settings, B.List, B.NameBox = Config, Settings, List, NameBox
+		return B
+	end
+
+	-- applies prism/settings.json's Autoload config (every control is registered by now)
+	function self:Autoload()
+		local name = Prism:GetSettings().Autoload
+		if type(name) ~= "string" or name == "" then return false end
+		local ok = Prism:LoadConfig(name)
+		if ok then
+			if self._builtin then self._builtin.List.SetLoaded(name) end
+			Prism:Notify("AUTOLOAD", name .. ".json applied")
+		end
+		return ok
+	end
+
+	if o.Builtin ~= false then
+		task.defer(function()
+			if not gui.Parent then return end
+			self:AddBuiltinTabs()
+			if o.Autoload ~= false then self:Autoload() end
+		end)
+	end
+
 	return self
 end
-
---==============================================================
--- EXAMPLE — reproduces the mockup exactly. Delete or move to your own script.
---==============================================================
---[[
-local Window = Prism:CreateWindow({ Name = "PRISM" })
-
----------------------------------------------------------------- CONFIG & THEMES
-local Config = Window:AddTab("Config & Themes")
-
-local Look = Config:AddSection("Appearance")
-Look:SetCount(5)
-Look:AddColorPicker({ Text = "Accent color", Desc = "signal / active state", Flag = "accent",
-	Callback = function(c) Window:SetAccent(c) end })
-Look:AddDropdown({ Text = "Preset", Desc = "full palette swap", Flag = "preset",
-	Options = { "Amethyst", "Midnight", "Void", "Ember" }, Default = "Amethyst" })
-Look:AddSlider({ Text = "Backdrop blur", Desc = "behind the chassis", Flag = "blur",
-	Min = 0, Max = 40, Default = 26, Places = 2, Suffix = "PX",
-	Callback = function(v) Window.Blur.Enabled = v > 0 Window.Blur.Size = v end })
-Look:AddSlider({ Text = "Corner radius", Desc = "chassis edge", Flag = "radius",
-	Min = 0, Max = 24, Default = 6, Places = 2, Suffix = "PX",
-	Callback = function(v) Window.Window:FindFirstChildOfClass("UICorner").CornerRadius = UDim.new(0, v) end })
-Look:AddToggle({ Text = "Glow effects", Desc = "bloom behind the panel", Default = true, Flag = "glow",
-	Callback = function(v) Window:SetGlow(v) end })
-
-local Saves = Config:AddSection("Configs")
-local NameBox, ConfigList
-
--- list / name / buttons are one group in the mockup: Divider = false on the input joins them
-ConfigList = Saves:AddConfigList({
-	Folder = "prism", Loaded = "default",
-	OnSelect = function(name) Prism.Flags.cfgName = name NameBox.Set(name) end,
-	OnCount  = function(n) Saves:SetCount(n) end,
-})
-NameBox = Saves:AddInput({ Tag = "NAME", Placeholder = "my-config", Default = "default", Flag = "cfgName", Divider = false })
-
-Saves:AddButtonRow({
-	{ Text = "New", Callback = function()
-		NameBox.Set("") Prism.Flags.cfgName = ""
-		Prism:Notify("NEW CONFIG", "name it, then save")
-	end },
-	{ Text = "Load", Callback = function()
-		local n = NameBox.Get()
-		if isfile and isfile("prism/" .. n .. ".json") then
-			Prism.Flags = HttpService:JSONDecode(readfile("prism/" .. n .. ".json"))
-			ConfigList.SetLoaded(n)
-			Prism:Notify("CONFIG LOADED", n .. ".json applied")
-		else
-			Prism:Notify("NOT FOUND", n .. ".json")
-		end
-	end },
-	{ Text = "Save", Style = "Primary", Callback = function()
-		local n = NameBox.Get()
-		if n == "" then return Prism:Notify("NAME REQUIRED", "type a config name first") end
-		if makefolder and not (isfolder and isfolder("prism")) then makefolder("prism") end
-		writefile("prism/" .. n .. ".json", HttpService:JSONEncode(Prism.Flags))
-		ConfigList.Refresh() ConfigList.SetLoaded(n)
-		Prism:Notify("CONFIG SAVED", n .. ".json written")
-	end },
-	{ Text = "Delete", Style = "Danger", Callback = function()
-		local n = NameBox.Get()
-		if delfile then delfile("prism/" .. n .. ".json") end
-		NameBox.Set("") ConfigList.Refresh()
-		Prism:Notify("CONFIG DELETED", n .. ".json removed")
-	end },
-})
-Saves:AddToggle({ Text = "Autoload on join", Desc = "apply this config at spawn", Default = true, Flag = "autoload" })
-
----------------------------------------------------------------- SETTINGS
-local Settings = Window:AddTab("Settings")
-
-local Iface = Settings:AddSection("Interface")
-Iface:SetCount(Prism.Mobile and 2 or 4)
--- these two are skipped automatically on touch devices
-Iface:AddKeybind({ Text = "Toggle menu", Desc = "show / hide the window",
-	Default = Enum.KeyCode.RightShift, Changed = function(k) Window.ToggleKey = k end })
-Iface:AddKeybind({ Text = "Panic hide", Desc = "destroys the gui instantly",
-	Default = Enum.KeyCode.End, Changed = function(k) Window.PanicKey = k end })
-Iface:AddSlider({ Text = "UI scale", Desc = "whole chassis", Flag = "scale",
-	Min = 75, Max = 125, Step = 5, Default = 100, Places = 3, Suffix = "%",
-	Callback = function(v) Window.Scale.Scale = v / 100 end })
-Iface:AddDropdown({ Text = "Notifications", Desc = "corner for tickers",
-	Options = { "Bottom Right", "Bottom Left", "Top Right" }, Default = "Bottom Right",
-	Callback = function(c) Window:SetNotificationCorner(c) end })
-
-local Perf = Settings:AddSection("Performance")
-Perf:SetCount(5)
-Perf:AddToggle({ Text = "Reduce animations", Desc = "cuts every tween to instant", Flag = "reduce",
-	Callback = function(v) Prism.Reduced = v end })
-Perf:AddToggle({ Text = "Low-end mode", Desc = "drops blur and bloom", Flag = "lowend",
-	Callback = function(v) Window:SetLowEnd(v) end })
-Perf:AddMultiDropdown({ Text = "Auto-disable in", Desc = "game categories to skip",
-	Options = { "Obbies", "Simulators", "Shooters", "Roleplay" }, Default = {} })
-Perf:AddInput({ Tag = "HOOK", Placeholder = "https://discord.com/api/webhooks/…", Flag = "hook" })
-Perf:AddButton({ Text = "Unload PRISM", Style = "Danger", Tall = true, Callback = function()
-	Prism:Notify("UNLOADED", "ScreenGui:Destroy()")
-	task.wait(0.3)
-	Window:Destroy()
-end })
-
-Prism:Notify("PRISM ATTACHED", "injected in 0.42s · 2 modules")
-]]
 
 return Prism
