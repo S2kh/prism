@@ -3,7 +3,7 @@
 	Roblox port of "Prism Script Menu v2.dc.html" — same palette, sizes, easing and behavior.
 
 	USAGE
-		local Prism  = loadstring(game:HttpGet("https://cdn.jsdelivr.net/gh/S2kh/prism@v1.3.2/PrismUI.lua"))()
+		local Prism  = loadstring(game:HttpGet("https://cdn.jsdelivr.net/gh/S2kh/prism@v1.3.3/PrismUI.lua"))()
 		-- local file instead:  loadstring(readfile("PrismUI.lua"))()
 		local Window = Prism:CreateWindow({ Name = "PRISM" })
 		local Tab    = Window:AddTab("Config & Themes")
@@ -92,7 +92,7 @@ local KEYPOOL = { "Q","W","E","R","T","F","G","V","B","X","Z","C","H","J","K","N
 
 local Prism = {}
 Prism.__index = Prism
-Prism.Version = "1.3.2"  -- bump every release; the tag in your loadstring URL should match this
+Prism.Version = "1.3.3"  -- bump every release; the tag in your loadstring URL should match this
 Prism.Theme   = Theme
 Prism.Mobile  = MOBILE
 Prism.Flags   = {}     -- every control with a Flag writes here; this is what a config saves
@@ -557,7 +557,6 @@ function Section:AddToggle(o)
 		Size = UDim2.fromOffset(MOBILE and 6 or 5, MOBILE and 6 or 5),
 		BackgroundColor3 = Theme.Edge, BorderSizePixel = 0, Parent = r,
 	})
-	local ledGlow = glow(led, Theme.Accent, 1, 7)
 
 	local well = new("TextButton", {
 		AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, 0, 0.5, 0),
@@ -598,7 +597,6 @@ function Section:AddToggle(o)
 			or  ColorSequence.new(Color3.fromHex("4A483F"), Color3.fromHex("2E2D28"))
 		knobEdge.BackgroundColor3 = on and Color3.fromHex("FFFDF6") or Color3.fromHex("5C5A50")
 		tw(led, FAST, { BackgroundColor3 = on and Theme.Accent or Theme.Edge })
-		ledGlow.ImageTransparency = on and 0.45 or 1
 	end
 
 	local function set(v, fire)
