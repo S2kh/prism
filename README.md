@@ -3,7 +3,7 @@
 A script menu library for Roblox. The repo holds one file — **`PrismUI.lua`** — served over a CDN. Your own scripts stay on your machine and pull it in at runtime.
 
 ```lua
-local Prism = loadstring(game:HttpGet("https://cdn.jsdelivr.net/gh/S2kh/prism@v1.1.0/PrismUI.lua"))()
+local Prism = loadstring(game:HttpGet("https://cdn.jsdelivr.net/gh/S2kh/prism@v1.2.0/PrismUI.lua"))()
 
 local Window = Prism:CreateWindow({ Name = "PRISM" })
 local Tab    = Window:AddTab("Config & Themes")
@@ -16,7 +16,7 @@ Sec:AddToggle({ Text = "Glow effects", Desc = "bloom behind the panel",
 
 That is the whole integration. The library returns `Prism`, reads nothing from the caller, and touches no files.
 
-**Pin a tag, never a branch.** `@v1.1.0` is immutable and cached forever. `@main` is cached about 12 hours at the edge, so after a fix is pushed some users get the old file and some get the new one for half a day — every bug report stops matching the code. `https://raw.githubusercontent.com/S2kh/prism/main/PrismUI.lua` is the 5-minute-cache URL to test against; hand out tags.
+**Pin a tag, never a branch.** `@v1.2.0` is immutable and cached forever. `@main` is cached about 12 hours at the edge, so after a fix is pushed some users get the old file and some get the new one for half a day — every bug report stops matching the code. `https://raw.githubusercontent.com/S2kh/prism/main/PrismUI.lua` is the 5-minute-cache URL to test against; hand out tags.
 
 Loading from disk instead: `loadstring(readfile("PrismUI.lua"))()`. On single-file executors, paste `PrismUI.lua` above your script and drop the `loadstring` line.
 
@@ -25,7 +25,7 @@ Loading from disk instead: `loadstring(readfile("PrismUI.lua"))()`. On single-fi
 The one-liner has no recourse if the CDN is unreachable. This tries jsDelivr, falls back to GitHub raw, and caches the library to `prism/lib_<version>.lua` so relaunches are instant:
 
 ```lua
-local PRISM_VERSION = "v1.1.0"   -- a git TAG, not a branch
+local PRISM_VERSION = "v1.2.0"   -- a git TAG, not a branch
 
 local function loadPrism()
 	local sources = {
@@ -93,11 +93,15 @@ Running the script twice is normal, so the library handles it. `CreateWindow` lo
 | `AddDropdown` | single select |
 | `AddMultiDropdown` | checkbox list, returns an array |
 | `AddColorPicker` | swatch strip. Pass `Swatches = {"C77DFF", …}` |
-| `AddInput` | recessed text field. `Tag` is the short label on the left |
+| `AddInput` | recessed text field. `Tag` is the short label on the left. `Divider = false` drops the hairline + padding so it sits inside a group |
 | `AddButton` / `AddButtonRow` | one button, or N across. `Style = "Primary"` / `"Danger"`, `Tall = true` |
-| `AddConfigList` | scrollable list of `prism/*.json`. Click a row to select it |
+| `AddConfigList` | scrollable list of `prism/*.json`. Click a row to select it. Opens a group: follow it with `AddInput({ Divider = false })` and `AddButtonRow` for the mockup's config block |
 | `Prism:Notify(title, body, duration)` | ticker with a draining rule |
 | `Section:SetCount(n)` | the number on the right of a section strip |
+| `Window:SetGlow(bool)` | bloom behind the chassis on/off |
+| `Window:SetLowEnd(bool)` | opaque chassis, no bloom, no blur |
+| `Window:SetNotificationCorner("Bottom Right" / "Bottom Left" / "Top Right")` | where tickers stack |
+| `Prism.Reduced = true` | every tween lands instantly ("Reduce animations") |
 
 Every control taking a `Flag` writes into `Prism.Flags`. That table is the whole save file — `HttpService:JSONEncode(Prism.Flags)` and you're done.
 

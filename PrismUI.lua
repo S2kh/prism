@@ -3,7 +3,7 @@
 	Roblox port of "Prism Script Menu v2.dc.html" — same palette, sizes, easing and behavior.
 
 	USAGE
-		local Prism  = loadstring(game:HttpGet("https://cdn.jsdelivr.net/gh/S2kh/prism@v1.1.0/PrismUI.lua"))()
+		local Prism  = loadstring(game:HttpGet("https://cdn.jsdelivr.net/gh/S2kh/prism@v1.2.0/PrismUI.lua"))()
 		-- local file instead:  loadstring(readfile("PrismUI.lua"))()
 		local Window = Prism:CreateWindow({ Name = "PRISM" })
 		local Tab    = Window:AddTab("Config & Themes")
@@ -18,8 +18,9 @@
 		· right-click a switch -> bind a key, mode = Always / Toggle / Hold   (DESKTOP ONLY)
 		· scrambling keybind chips while listening
 		· ticker notifications with a draining rule
-		· tab underline that slides with overshoot
+		· tab underline that slides with overshoot; pages shutter in from the top
 		· config list -> click a row to load it into the name box
+		· header sheen sweep, mouse-following specular, glow / low-end / notification-corner hooks
 
 	MOBILE (UserInputService.TouchEnabled and not KeyboardEnabled)
 		· NO keybinds. AddKeybind is a no-op, right-click binding is disabled.
@@ -91,10 +92,11 @@ local KEYPOOL = { "Q","W","E","R","T","F","G","V","B","X","Z","C","H","J","K","N
 
 local Prism = {}
 Prism.__index = Prism
-Prism.Version = "1.1.0"  -- bump every release; the tag in your loadstring URL should match this
+Prism.Version = "1.2.0"  -- bump every release; the tag in your loadstring URL should match this
 Prism.Theme   = Theme
 Prism.Mobile  = MOBILE
 Prism.Flags   = {}     -- every control with a Flag writes here; this is what you save/load
+Prism.Reduced = false  -- true = every tween is instant (the mockup's "Reduce animations")
 
 --==============================================================
 -- CONNECTION REGISTRY
@@ -159,7 +161,14 @@ local function list(p, gap, dir, align)
 	})
 end
 
-local function tw(inst, info, goal) local t = TweenService:Create(inst, info, goal) t:Play() return t end
+-- Prism.Reduced = true is the mockup's "reduce animations": every tween lands instantly
+local function tw(inst, info, goal)
+	if Prism.Reduced then
+		for k, v in pairs(goal) do inst[k] = v end
+		return nil
+	end
+	local t = TweenService:Create(inst, info, goal) t:Play() return t
+end
 
 -- vertical gradient; the mockup's linear-gradient(180deg, a, b)
 local function gradient(parent, top, bottom, rotation)
@@ -326,23 +335,29 @@ local ROW_H   = MOBILE and 72 or 58
 local CTRL_H  = MOBILE and 44 or 32
 
 -- one full-width row: label + description on the left, control on the right
-function Section:_row(text, desc, height)
+-- opts: Divider (default true), LabelWidth (offset px; default = row minus 190),
+--       Hover (default = text ~= nil)
+function Section:_row(text, desc, height, opts)
+	opts = opts or {}
 	local r = new("Frame", {
-		BackgroundColor3 = Theme.Chassis, BackgroundTransparency = 1,
+		BackgroundColor3 = Color3.fromHex("101012"), BackgroundTransparency = 1,
 		Size = UDim2.new(1, 0, 0, height or ROW_H), LayoutOrder = self._order, Parent = self.Frame,
 	})
 	self._order += 1
-	new("Frame", {
-		AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 0, 1, 0), Size = UDim2.new(1, 0, 0, 1),
-		BackgroundColor3 = Theme.Line, BorderSizePixel = 0, Parent = r,
-	})
+	if opts.Divider ~= false then
+		new("Frame", {
+			AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 0, 1, 0), Size = UDim2.new(1, 0, 0, 1),
+			BackgroundColor3 = Theme.Line, BorderSizePixel = 0, Parent = r,
+		})
+	end
 	pad(r, 0, 22)
 
 	-- Instances reject custom fields, so the header strip is returned to the
 	-- caller rather than parked on the row. nil when the row has no text.
 	local head
 	if text then
-		local col = new("Frame", { BackgroundTransparency = 1, Size = UDim2.new(1, -190, 1, 0), Parent = r })
+		local colSize = opts.LabelWidth and UDim2.new(0, opts.LabelWidth, 1, 0) or UDim2.new(1, -190, 1, 0)
+		local col = new("Frame", { BackgroundTransparency = 1, Size = colSize, Parent = r })
 		list(col, 3, nil, Enum.VerticalAlignment.Center)
 		head = new("Frame", { BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 18), Parent = col })
 		list(head, 8, Enum.FillDirection.Horizontal, Enum.VerticalAlignment.Center)
@@ -352,9 +367,12 @@ function Section:_row(text, desc, height)
 		if desc then label(col, string.upper(desc), 9, Theme.Bone3, Theme.Mono, true) end
 	end
 
-	-- hover wash (desktop only)
-	if not MOBILE then
-		r.MouseEnter:Connect(function() tw(r, FAST, { BackgroundTransparency = 0.88 }) end)
+	-- hover wash #101012 (desktop only, and only on rows that have a label — the
+	-- mockup's config group / input / button rows don't hover)
+	local hover = opts.Hover
+	if hover == nil then hover = text ~= nil end
+	if not MOBILE and hover then
+		r.MouseEnter:Connect(function() tw(r, FAST, { BackgroundTransparency = 0 }) end)
 		r.MouseLeave:Connect(function() tw(r, FAST, { BackgroundTransparency = 1 }) end)
 	end
 	return r, head
@@ -462,9 +480,11 @@ function Section:AddToggle(o)
 			if menu then closeMenu() return end
 			if win._closePopups then win._closePopups() end
 
-			local MH = 162
+			-- right: calc(100% + 12px) off the LED+switch group, i.e. clear of the
+			-- 9px gap and the LED before the 12px margin
+			local MH, MX = 162, -(12 + 9 + (MOBILE and 6 or 5))
 			menu = new("Frame", {
-				AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(0, -12, 0.5, -MH / 2),
+				AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(0, MX, 0.5, -MH / 2),
 				Size = UDim2.fromOffset(196, MH), BackgroundColor3 = Color3.fromHex("0C0C0E"),
 				ClipsDescendants = true, ZIndex = 40, Parent = well,
 			})
@@ -481,7 +501,7 @@ function Section:AddToggle(o)
 				local minY, maxY = body.AbsolutePosition.Y + 10, body.AbsolutePosition.Y + body.AbsoluteSize.Y - MH - 10
 				local clamped = math.clamp(top, minY, maxY)
 				if clamped ~= top then
-					menu.Position = UDim2.new(0, -12, 0.5, -MH / 2 + (clamped - top))
+					menu.Position = UDim2.new(0, MX, 0.5, -MH / 2 + (clamped - top))
 				end
 			end)
 
@@ -603,11 +623,12 @@ function Section:AddSlider(o)
 	local min, max, step = o.Min or 0, o.Max or 100, o.Step or 1
 	local places = o.Places or #tostring(max)
 	local value = math.clamp(o.Default or min, min, max)
-	local r = self:_row(o.Text, o.Desc)
+	-- mockup: label column is a fixed 150px, the fader takes everything else (gap 24)
+	local r = self:_row(o.Text, o.Desc, nil, { LabelWidth = 150 })
 
 	local right = new("Frame", {
 		AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, 0, 0.5, 0),
-		Size = UDim2.fromOffset(MOBILE and 210 or 280, 26), BackgroundTransparency = 1, Parent = r,
+		Size = UDim2.new(1, -174, 0, 26), BackgroundTransparency = 1, Parent = r,
 	})
 	local odo = odometer(right, places, o.Suffix)
 
@@ -633,10 +654,12 @@ function Section:AddSlider(o)
 	local cap = new("Frame", {
 		AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new((value - min) / (max - min), 0, 0.5, 0),
 		Size = UDim2.fromOffset(MOBILE and 14 or 10, MOBILE and 30 or 22),
-		BackgroundColor3 = Color3.fromHex("D8D3C6"), BorderSizePixel = 0, ZIndex = 3, Parent = track,
+		BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0, ZIndex = 3, Parent = track,
 	})
+	gradient(cap, Color3.fromHex("F2EEE3"), Color3.fromHex("B8B3A6"))   -- linear-gradient(180deg,#F2EEE3,#B8B3A6)
 	grip(cap, false)
 	new("Frame", { Size = UDim2.new(1, 0, 0, 1), BackgroundColor3 = Color3.fromHex("FFFDF6"), BorderSizePixel = 0, ZIndex = 3, Parent = cap })
+	new("Frame", { AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 0, 1, 0), Size = UDim2.new(1, 0, 0, 2), BackgroundColor3 = Color3.fromHex("08080A"), BorderSizePixel = 0, ZIndex = 3, Parent = cap })
 	glow(cap, Theme.Accent, 0.55, 10)
 
 	local hit = new("TextButton", {
@@ -700,9 +723,14 @@ function Section:AddKeybind(o)
 	btn.MouseButton1Click:Connect(function()
 		listening = true
 		bs.Color, bar.BackgroundTransparency = Theme.Accent, 0
+		btn.BackgroundColor3, btn.BackgroundTransparency = Theme.Accent, 0.86
 		scrambleTask = task.spawn(function()
+			local n = 0
 			while listening do
 				btn.Text = KEYPOOL[math.random(#KEYPOOL)]
+				n += 1
+				-- listenBar .55s steps(2): the bar blinks while listening
+				bar.BackgroundTransparency = (n % 10 < 5) and 0 or 0.75
 				task.wait(0.055)
 			end
 		end)
@@ -715,6 +743,7 @@ function Section:AddKeybind(o)
 		key = i.KeyCode
 		btn.Text = string.upper(keyName(key))
 		bs.Color, bar.BackgroundTransparency = Theme.Edge2, 1
+		btn.BackgroundColor3, btn.BackgroundTransparency = Theme.Well, 0
 		if o.Flag then Prism.Flags[o.Flag] = keyName(key) end
 		Prism:Notify("KEYBIND SET", (o.Text or "bind") .. " → " .. string.upper(keyName(key)))
 		if o.Changed then task.spawn(o.Changed, key) end
@@ -877,45 +906,62 @@ function Section:AddColorPicker(o)
 	pad(tray, 4)
 	list(tray, 5, Enum.FillDirection.Horizontal, Enum.VerticalAlignment.Center)
 
-	local btns = {}
+	local btns, currentHex = {}, nil
+	-- selected swatch: 2px bone border, bloom, lifted 2px (translateY(-2px))
+	local function paint(hex)
+		currentHex = hex
+		for h, rec in pairs(btns) do
+			local on = h == hex
+			rec.stroke.Color = on and Theme.Bone or Color3.new(0, 0, 0)
+			rec.stroke.Transparency = on and 0 or 0.4
+			rec.stroke.Thickness = on and 2 or 1
+			rec.glow.ImageTransparency = on and 0.35 or 1
+			tw(rec.slot, SNAP, { Position = UDim2.fromOffset(0, on and -2 or 0) })
+		end
+	end
 	for i, hex in ipairs(hexes) do
 		local c = Color3.fromHex(hex)
+		-- a fixed layout slot so the lift doesn't shove neighbours around
+		local slotFrame = new("Frame", { Size = UDim2.fromOffset(size, size), BackgroundTransparency = 1, LayoutOrder = i, Parent = tray })
+		local slot = new("Frame", { Size = UDim2.fromOffset(size, size), BackgroundTransparency = 1, Parent = slotFrame })
 		local b = new("TextButton", {
-			Size = UDim2.fromOffset(size, size), BackgroundColor3 = c, AutoButtonColor = false,
-			Text = "", LayoutOrder = i, Parent = tray,
+			Size = UDim2.fromScale(1, 1), BackgroundColor3 = c, AutoButtonColor = false,
+			Text = "", Parent = slot,
 		})
-		btns[hex] = { btn = b, stroke = stroke(b, Color3.new(0, 0, 0), 0.4), glow = glow(b, c, 1, 10) }
+		btns[hex] = { btn = b, slot = slot, stroke = stroke(b, Color3.new(0, 0, 0), 0.4), glow = glow(b, c, 1, 10) }
 		b.MouseButton1Click:Connect(function()
 			value = c
-			for h, rec in pairs(btns) do
-				local on = h == hex
-				rec.stroke.Color = on and Theme.Bone or Color3.new(0, 0, 0)
-				rec.stroke.Transparency = on and 0 or 0.4
-				rec.stroke.Thickness = on and 2 or 1
-				rec.glow.ImageTransparency = on and 0.35 or 1
-				tw(rec.btn, SNAP, { Size = UDim2.fromOffset(size, size) })
-			end
+			paint(hex)
 			if o.Flag then Prism.Flags[o.Flag] = hex end
 			if o.Callback then task.spawn(o.Callback, c) end
 		end)
 	end
-	return { Get = function() return value end }
+	-- the mockup renders with the default swatch already selected
+	local defHex = string.upper(typeof(value) == "Color3" and value:ToHex() or tostring(value))
+	for _, hex in ipairs(hexes) do
+		if string.upper(hex) == defHex then paint(hex) value = Color3.fromHex(hex) break end
+	end
+	if o.Flag and currentHex then Prism.Flags[o.Flag] = currentHex end
+	return { Get = function() return value end, Set = function(hex) paint(hex) value = Color3.fromHex(hex) end }
 end
 
 --------------------------------------------------------------------
 -- TEXT INPUT  (tag + recessed well)
 --------------------------------------------------------------------
+-- Divider = false drops the hairline and the 14px vertical padding, for use
+-- inside a group (the mockup's config block: list / name / buttons, gap 12)
 function Section:AddInput(o)
-	local r = self:_row(nil, nil, MOBILE and 62 or 52)
+	local grouped = o.Divider == false
+	local r = self:_row(nil, nil, grouped and CTRL_H or CTRL_H + 28, { Divider = not grouped })
 	local row = new("Frame", { BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), Parent = r })
 	list(row, 10, Enum.FillDirection.Horizontal, Enum.VerticalAlignment.Center)
 
 	local tag = label(row, string.upper(o.Tag or o.Text or "TEXT"), 9, Theme.Bone4, Theme.Mono, true)
-	tag.Size = UDim2.fromOffset(42, 14)
+	tag.Size = UDim2.fromOffset(38, 14)
 	tag.LayoutOrder = 1
 
 	local box = new("TextBox", {
-		Size = UDim2.new(1, -52, 0, CTRL_H), BackgroundColor3 = Theme.Well,
+		Size = UDim2.new(1, -48, 0, CTRL_H), BackgroundColor3 = Theme.Well,
 		Text = o.Default or "", PlaceholderText = o.Placeholder or "",
 		PlaceholderColor3 = Color3.fromHex("4E4B45"), TextSize = 11, FontFace = Theme.Mono,
 		TextColor3 = Theme.Bone, TextXAlignment = Enum.TextXAlignment.Left,
@@ -953,16 +999,17 @@ local function styleButton(b, style)
 	end
 end
 
+-- closes the mockup's config group: 12px above (the group gap), 16px below, then the divider
 function Section:AddButtonRow(items)
 	local h = MOBILE and 44 or 30
-	local r = self:_row(nil, nil, h + 20)
-	local row = new("Frame", { BackgroundTransparency = 1, Position = UDim2.fromOffset(0, 10), Size = UDim2.new(1, 0, 0, h), Parent = r })
+	local r = self:_row(nil, nil, h + 28)
+	local row = new("Frame", { BackgroundTransparency = 1, Position = UDim2.fromOffset(0, 12), Size = UDim2.new(1, 0, 0, h), Parent = r })
 	list(row, 6, Enum.FillDirection.Horizontal)
 	local n = #items
 	for i, it in ipairs(items) do
 		local b = new("TextButton", {
 			Size = UDim2.new(1 / n, -6 + 6 / n, 1, 0), AutoButtonColor = false,
-			Text = string.upper(it.Text), TextSize = 10, FontFace = Theme.Mono, LayoutOrder = i, Parent = row,
+			Text = string.upper(it.Text), TextSize = 9.5, FontFace = Theme.Mono, LayoutOrder = i, Parent = row,
 		})
 		styleButton(b, it.Style)
 		local base = b.BackgroundTransparency
@@ -973,11 +1020,12 @@ function Section:AddButtonRow(items)
 end
 
 function Section:AddButton(o)
+	-- mockup: padding 16px 22px 22px, no divider under the last row
 	local h = o.Tall and (MOBILE and 48 or 38) or (MOBILE and 44 or 30)
-	local r = self:_row(nil, nil, h + 22)
+	local r = self:_row(nil, nil, h + 38, { Divider = o.Divider })
 	local b = new("TextButton", {
-		Position = UDim2.fromOffset(0, 11), Size = UDim2.new(1, 0, 0, h), AutoButtonColor = false,
-		Text = string.upper(o.Text), TextSize = o.Tall and 11 or 10, FontFace = Theme.Mono, Parent = r,
+		Position = UDim2.fromOffset(0, 16), Size = UDim2.new(1, 0, 0, h), AutoButtonColor = false,
+		Text = string.upper(o.Text), TextSize = o.Tall and 10.5 or 9.5, FontFace = Theme.Mono, Parent = r,
 	})
 	styleButton(b, o.Style)
 	local base = b.BackgroundTransparency
@@ -996,9 +1044,11 @@ function Section:AddConfigList(o)
 	local maxH     = MOBILE and 152 or 108
 	local rows, selected, loaded = {}, nil, o.Loaded
 
-	local r = self:_row(nil, nil, maxH + 24)
+	-- opens the mockup's config group: 16px above, 12px gap below, no divider —
+	-- AddInput({ Divider = false }) and AddButtonRow follow it directly
+	local r = self:_row(nil, nil, maxH + 28, { Divider = false })
 	local box = new("ScrollingFrame", {
-		Position = UDim2.fromOffset(0, 12), Size = UDim2.new(1, 0, 0, maxH),
+		Position = UDim2.fromOffset(0, 16), Size = UDim2.new(1, 0, 0, maxH),
 		BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.58, BorderSizePixel = 0,
 		ScrollBarThickness = 3, ScrollBarImageColor3 = Theme.Edge2, ScrollBarImageTransparency = 0.3,
 		CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y, Parent = r,
@@ -1214,6 +1264,18 @@ function Prism:CreateWindow(o)
 		ImageColor3 = Color3.new(0, 0, 0), ScaleType = Enum.ScaleType.Tile, TileSize = UDim2.fromOffset(200, 3),
 		Size = UDim2.fromScale(1, 1), ZIndex = 12, Parent = win,
 	})
+	-- specular: radial-gradient(460px 320px at mouse) rgba(233,228,216,.06) — desktop only
+	if not MOBILE then
+		local spec = new("ImageLabel", {
+			BackgroundTransparency = 1, Image = Theme.GlowAsset, ImageColor3 = Theme.Bone, ImageTransparency = 0.94,
+			ScaleType = Enum.ScaleType.Slice, SliceCenter = Rect.new(49, 49, 450, 450),
+			AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, 0.3, 0),
+			Size = UDim2.fromOffset(460, 320), ZIndex = 11, Parent = win,
+		})
+		win.MouseMoved:Connect(function(x, y)
+			spec.Position = UDim2.fromOffset(x - win.AbsolutePosition.X, y - win.AbsolutePosition.Y)
+		end)
+	end
 	-- corner screws
 	for _, p in ipairs({ { 9, 9, 0, 0 }, { -9, 9, 1, 0 }, { 9, -9, 0, 1 }, { -9, -9, 1, 1 } }) do
 		local s = new("Frame", {
@@ -1231,8 +1293,31 @@ function Prism:CreateWindow(o)
 	----------------------------------------------------------------
 	-- header: wordmark + close/minimize
 	----------------------------------------------------------------
-	local header = new("Frame", { Size = UDim2.new(1, 0, 0, MOBILE and 76 or 60), BackgroundTransparency = 1, ZIndex = 4, Parent = win })
+	-- padding 17px 22px 15px around a 22px wordmark (+1 border) = 55; mobile the 44px button sets it
+	local HEADER_H = MOBILE and 76 or 55
+	local header = new("Frame", { Size = UDim2.new(1, 0, 0, HEADER_H), BackgroundTransparency = 1, ClipsDescendants = true, ZIndex = 4, Parent = win })
 	new("Frame", { AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 0, 1, 0), Size = UDim2.new(1, 0, 0, 1), BackgroundColor3 = Theme.Edge, BorderSizePixel = 0, Parent = header })
+
+	-- sweep: a 60px sheen crossing the header every 9s
+	local sweep = new("Frame", {
+		Position = UDim2.new(0, -80, 0, 0), Size = UDim2.new(0, 60, 1, 0),
+		BackgroundColor3 = Theme.Bone, BorderSizePixel = 0, ZIndex = 4, Parent = header,
+	})
+	new("UIGradient", {
+		Rotation = 0, Parent = sweep,
+		Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.5, 0.95), NumberSequenceKeypoint.new(1, 1),
+		}),
+	})
+	task.spawn(function()
+		while sweep.Parent do
+			if not Prism.Reduced then
+				sweep.Position = UDim2.new(0, -80, 0, 0)
+				tw(sweep, TweenInfo.new(9, Enum.EasingStyle.Cubic, Enum.EasingDirection.InOut), { Position = UDim2.new(1, 80, 0, 0) })
+			end
+			task.wait(9)
+		end
+	end)
 	pad(header, 0, 22)
 
 	local wordmark = new("TextLabel", {
@@ -1254,13 +1339,14 @@ function Prism:CreateWindow(o)
 	-- tab strip + sliding underline
 	----------------------------------------------------------------
 	local strip = new("Frame", {
-		Position = UDim2.fromOffset(0, MOBILE and 76 or 60), Size = UDim2.new(1, 0, 0, MOBILE and 48 or 40),
+		Position = UDim2.fromOffset(0, HEADER_H), Size = UDim2.new(1, 0, 0, MOBILE and 48 or 40),
 		BackgroundColor3 = Color3.fromHex("0C0C0E"), ZIndex = 4, Parent = win,
 	})
 	new("Frame", { AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 0, 1, 0), Size = UDim2.new(1, 0, 0, 1), BackgroundColor3 = Theme.Edge, BorderSizePixel = 0, Parent = strip })
 	local tabRow = new("Frame", { BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), Parent = strip })
 	pad(tabRow, 0, 22)
-	list(tabRow, 22, Enum.FillDirection.Horizontal, Enum.VerticalAlignment.Center)
+	-- mockup: padding-right 18 + margin-right 22 between tabs
+	list(tabRow, 40, Enum.FillDirection.Horizontal, Enum.VerticalAlignment.Center)
 	local underline = new("Frame", {
 		AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 22, 1, 0), Size = UDim2.fromOffset(0, 2),
 		BackgroundColor3 = Theme.Accent, BorderSizePixel = 0, ZIndex = 5, Parent = strip,
@@ -1270,7 +1356,7 @@ function Prism:CreateWindow(o)
 	----------------------------------------------------------------
 	-- scrolling body
 	----------------------------------------------------------------
-	local bodyTop = (MOBILE and 76 or 60) + (MOBILE and 48 or 40)
+	local bodyTop = HEADER_H + (MOBILE and 48 or 40)
 	local body = new("Frame", {
 		Position = UDim2.fromOffset(0, bodyTop), Size = UDim2.new(1, 0, 1, -bodyTop),
 		BackgroundTransparency = 1, ClipsDescendants = true, ZIndex = 4, Parent = win,
@@ -1285,6 +1371,7 @@ function Prism:CreateWindow(o)
 		Size = UDim2.fromOffset(286, 320), BackgroundTransparency = 1, Parent = gui,
 	})
 	list(self._notif, 7, nil, Enum.VerticalAlignment.Bottom)
+	Prism._notif = self._notif   -- Prism:Notify() is called on the module, not the window
 
 	local icon = new("TextButton", {
 		AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -28), Size = UDim2.fromOffset(56, 56),
@@ -1325,7 +1412,7 @@ function Prism:CreateWindow(o)
 		local btn = new("TextButton", {
 			Size = UDim2.fromOffset(0, MOBILE and 48 or 40), AutomaticSize = Enum.AutomaticSize.X,
 			BackgroundTransparency = 1, AutoButtonColor = false, Text = string.upper(name),
-			TextSize = 10, FontFace = Theme.Mono, TextColor3 = index == 1 and Theme.Bone or Theme.Bone4,
+			TextSize = 9.5, FontFace = Theme.Mono, TextColor3 = index == 1 and Theme.Bone or Theme.Bone4,
 			LayoutOrder = index, Parent = tabRow,
 		})
 
@@ -1347,10 +1434,11 @@ function Prism:CreateWindow(o)
 					Position = UDim2.new(0, t.Button.AbsolutePosition.X - strip.AbsolutePosition.X, 1, 0),
 					Size = UDim2.fromOffset(t.Button.AbsoluteSize.X, 2),
 				})
-				-- shutter the page in
+				-- shutter the page in (clip-path inset(0 0 100% 0) -> 0, .34s)
 				t.Page.Position = UDim2.fromOffset(0, 0)
-				local clip = t.Page
-				clip.CanvasPosition = Vector2.new(0, 0)
+				t.Page.CanvasPosition = Vector2.new(0, 0)
+				t.Page.Size = UDim2.new(1, 0, 0, 0)
+				tw(t.Page, TweenInfo.new(0.34, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), { Size = UDim2.fromScale(1, 1) })
 			end
 		end
 		if self._closePopups then self._closePopups() self._closePopups = nil end
@@ -1393,7 +1481,34 @@ function Prism:CreateWindow(o)
 		Theme.Accent = c
 		chassisGlow.ImageColor3 = c
 		underline.BackgroundColor3 = c
+		iconLed.BackgroundColor3 = c
 		-- controls read Theme.Accent on their next paint; new rows pick it up immediately
+	end
+
+	-- "Glow effects": the bloom behind the chassis (box-shadow 0 0 90px accent)
+	self._glow, self._lowEnd = true, false
+	local function paintGlow()
+		local on = self._glow and not self._lowEnd
+		tw(chassisGlow, SMOOTH, { ImageTransparency = on and 0.62 or 1 })
+	end
+	function self:SetGlow(on) self._glow = on and true or false paintGlow() end
+
+	-- "Low-end mode": opaque chassis, no bloom, no blur
+	function self:SetLowEnd(on)
+		self._lowEnd = on and true or false
+		tw(win, SMOOTH, { BackgroundTransparency = self._lowEnd and 0 or 0.12 })
+		if self.Blur then self.Blur.Enabled = (not self._lowEnd) and self.Blur.Size > 0 end
+		paintGlow()
+	end
+
+	-- "Notifications": which corner the tickers stack in
+	function self:SetNotificationCorner(corner)
+		corner = string.lower(tostring(corner or "Bottom Right"))
+		local top, left = corner:find("top") ~= nil, corner:find("left") ~= nil
+		self._notif.AnchorPoint = Vector2.new(left and 0 or 1, top and 0 or 1)
+		self._notif.Position = UDim2.new(left and 0 or 1, left and 26 or -26, top and 0 or 1, top and 26 or -26)
+		self._notif:FindFirstChildOfClass("UIListLayout").VerticalAlignment =
+			top and Enum.VerticalAlignment.Top or Enum.VerticalAlignment.Bottom
 	end
 
 	function self:Destroy()
@@ -1448,17 +1563,19 @@ Look:AddSlider({ Text = "Backdrop blur", Desc = "behind the chassis", Flag = "bl
 Look:AddSlider({ Text = "Corner radius", Desc = "chassis edge", Flag = "radius",
 	Min = 0, Max = 24, Default = 6, Places = 2, Suffix = "PX",
 	Callback = function(v) Window.Window:FindFirstChildOfClass("UICorner").CornerRadius = UDim.new(0, v) end })
-Look:AddToggle({ Text = "Glow effects", Desc = "bloom behind the panel", Default = true, Flag = "glow" })
+Look:AddToggle({ Text = "Glow effects", Desc = "bloom behind the panel", Default = true, Flag = "glow",
+	Callback = function(v) Window:SetGlow(v) end })
 
 local Saves = Config:AddSection("Configs")
 local NameBox, ConfigList
 
+-- list / name / buttons are one group in the mockup: Divider = false on the input joins them
 ConfigList = Saves:AddConfigList({
 	Folder = "prism", Loaded = "default",
 	OnSelect = function(name) Prism.Flags.cfgName = name NameBox.Set(name) end,
 	OnCount  = function(n) Saves:SetCount(n) end,
 })
-NameBox = Saves:AddInput({ Tag = "NAME", Placeholder = "my-config", Default = "default", Flag = "cfgName" })
+NameBox = Saves:AddInput({ Tag = "NAME", Placeholder = "my-config", Default = "default", Flag = "cfgName", Divider = false })
 
 Saves:AddButtonRow({
 	{ Text = "New", Callback = function()
@@ -1506,13 +1623,15 @@ Iface:AddSlider({ Text = "UI scale", Desc = "whole chassis", Flag = "scale",
 	Min = 75, Max = 125, Step = 5, Default = 100, Places = 3, Suffix = "%",
 	Callback = function(v) Window.Scale.Scale = v / 100 end })
 Iface:AddDropdown({ Text = "Notifications", Desc = "corner for tickers",
-	Options = { "Bottom Right", "Bottom Left", "Top Right" }, Default = "Bottom Right" })
+	Options = { "Bottom Right", "Bottom Left", "Top Right" }, Default = "Bottom Right",
+	Callback = function(c) Window:SetNotificationCorner(c) end })
 
 local Perf = Settings:AddSection("Performance")
 Perf:SetCount(5)
-Perf:AddToggle({ Text = "Reduce animations", Desc = "cuts every tween to instant", Flag = "reduce" })
+Perf:AddToggle({ Text = "Reduce animations", Desc = "cuts every tween to instant", Flag = "reduce",
+	Callback = function(v) Prism.Reduced = v end })
 Perf:AddToggle({ Text = "Low-end mode", Desc = "drops blur and bloom", Flag = "lowend",
-	Callback = function(v) Window.Window.BackgroundTransparency = v and 0 or 0.12 end })
+	Callback = function(v) Window:SetLowEnd(v) end })
 Perf:AddMultiDropdown({ Text = "Auto-disable in", Desc = "game categories to skip",
 	Options = { "Obbies", "Simulators", "Shooters", "Roleplay" }, Default = {} })
 Perf:AddInput({ Tag = "HOOK", Placeholder = "https://discord.com/api/webhooks/…", Flag = "hook" })
