@@ -3,7 +3,7 @@
 	Roblox port of "Prism Script Menu v2.dc.html" — same palette, sizes, easing and behavior.
 
 	USAGE
-		local Prism  = loadstring(game:HttpGet("https://cdn.jsdelivr.net/gh/S2kh/prism@v1.3.1/PrismUI.lua"))()
+		local Prism  = loadstring(game:HttpGet("https://cdn.jsdelivr.net/gh/S2kh/prism@v1.3.2/PrismUI.lua"))()
 		-- local file instead:  loadstring(readfile("PrismUI.lua"))()
 		local Window = Prism:CreateWindow({ Name = "PRISM" })
 		local Tab    = Window:AddTab("Config & Themes")
@@ -92,7 +92,7 @@ local KEYPOOL = { "Q","W","E","R","T","F","G","V","B","X","Z","C","H","J","K","N
 
 local Prism = {}
 Prism.__index = Prism
-Prism.Version = "1.3.1"  -- bump every release; the tag in your loadstring URL should match this
+Prism.Version = "1.3.2"  -- bump every release; the tag in your loadstring URL should match this
 Prism.Theme   = Theme
 Prism.Mobile  = MOBILE
 Prism.Flags   = {}     -- every control with a Flag writes here; this is what a config saves
@@ -648,17 +648,20 @@ function Section:AddToggle(o)
 			})
 			stroke(menu, Color3.fromHex("33322B"))
 			glow(menu, Theme.Accent, 0.72, 22)
-			pad(menu, 11)
-			list(menu, 7)
+			-- the glow must NOT sit in the list: a UIListLayout stacks every GuiObject child,
+			-- so the padded list lives in an inner box and the glow stays on the outer frame
+			local box = new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, ZIndex = 2, Parent = menu })
+			pad(box, 11)
+			list(box, 7)
 
-			local head = label(menu, "BIND · " .. string.upper(o.Text or ""), 8, Theme.Bone4, Theme.Mono, true)
+			local head = label(box, "BIND · " .. string.upper(o.Text or ""), 8, Theme.Bone4, Theme.Mono, true)
 			head.LayoutOrder = 1
 
 			local keyBtn = new("TextButton", {
 				Size = UDim2.new(1, 0, 0, 30), BackgroundColor3 = Theme.Well, AutoButtonColor = false,
 				Text = bind.Key and string.upper(keyName(bind.Key)) or "CLICK TO BIND",
 				TextSize = 11, FontFace = Theme.Mono,
-				TextColor3 = bind.Key and Theme.Bone or Theme.Bone4, LayoutOrder = 2, Parent = menu,
+				TextColor3 = bind.Key and Theme.Bone or Theme.Bone4, LayoutOrder = 2, Parent = box,
 			})
 			local keyStroke = stroke(keyBtn, Theme.Edge2)
 
@@ -675,9 +678,9 @@ function Section:AddToggle(o)
 				end)
 			end)
 
-			local modeRow = new("Frame", { Size = UDim2.new(1, 0, 0, 24), BackgroundTransparency = 1, LayoutOrder = 3, Parent = menu })
+			local modeRow = new("Frame", { Size = UDim2.new(1, 0, 0, 24), BackgroundTransparency = 1, LayoutOrder = 3, Parent = box })
 			list(modeRow, 3, Enum.FillDirection.Horizontal)
-			local hint = label(menu, "", 8, Theme.Bone3, Theme.Mono, true)
+			local hint = label(box, "", 8, Theme.Bone3, Theme.Mono, true)
 			hint.LayoutOrder = 4
 			hint.Size = UDim2.new(1, 0, 0, 22)
 			hint.TextWrapped = true
@@ -717,7 +720,7 @@ function Section:AddToggle(o)
 			local clear = new("TextButton", {
 				Size = UDim2.new(1, 0, 0, 24), BackgroundColor3 = Theme.Danger, BackgroundTransparency = 0.9,
 				AutoButtonColor = false, Text = "CLEAR BIND", TextSize = 9, FontFace = Theme.Mono,
-				TextColor3 = Theme.Danger, LayoutOrder = 5, Parent = menu,
+				TextColor3 = Theme.Danger, LayoutOrder = 5, Parent = box,
 			})
 			stroke(clear, Theme.Danger, 0.7)
 			clear.MouseButton1Click:Connect(function()
